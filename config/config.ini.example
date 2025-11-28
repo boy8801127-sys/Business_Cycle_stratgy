@@ -1,0 +1,24 @@
+[database]
+# 資料庫路徑
+db_path = D:\all_data\taiwan_stock_all_data.db
+
+[business_cycle]
+# 景氣燈號資料 CSV 檔案路徑
+cycle_data_csv = business_cycle/景氣指標與燈號.csv
+
+[backtest]
+# 回測起始日期
+start_date = 2015-01-01
+# 回測結束日期（留空表示到今天）
+end_date = 
+# 初始資金
+initial_capital = 100000
+
+[api]
+# API 請求延遲（秒）
+request_delay = 3
+# 重試次數
+retry_times = 3
+# 重試延遲（秒）
+retry_delay = 5
+

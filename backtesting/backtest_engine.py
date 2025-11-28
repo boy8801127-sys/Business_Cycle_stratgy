@@ -1,0 +1,325 @@
+"""
+景氣週期投資策略回測引擎
+簡化的回測框架，不依賴 Zipline
+"""
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+import pandas_market_calendars as pmc
+
+
+class BacktestEngine:
+    """景氣週期投資策略回測引擎"""
+    
+    def __init__(self, initial_capital=100000, commission_rate=0.001425, tax_rate=0.003):
+        """
+        初始化回測引擎
+        
+        參數:
+        - initial_capital: 初始資金
+        - commission_rate: 手續費率（預設 0.1425%）
+        - tax_rate: 證交稅率（預設 0.3%，賣出時）
+        """
+        self.initial_capital = initial_capital
+        self.commission_rate = commission_rate
+        self.tax_rate = tax_rate
+        
+        # 回測狀態
+        self.cash = initial_capital
+        self.positions = {}  # {ticker: shares}
+        self.portfolio_value = []  # 每日投資組合價值
+        self.returns = []  # 每日報酬率
+        self.trades = []  # 交易記錄
+        self.dates = []  # 日期列表
+        
+        # 景氣燈號資料
+        self.cycle_data = None
+    
+    def calculate_commission(self, value):
+        """計算手續費"""
+        commission = value * self.commission_rate
+        return max(commission, 20)  # 最低 20 元
+    
+    def calculate_tax(self, value):
+        """計算證交稅（賣出時）"""
+        return value * self.tax_rate
+    
+    def get_trading_dates(self, start_date, end_date):
+        """取得交易日列表"""
+        cal = pmc.get_calendar('XTAI')
+        trading_days = cal.valid_days(start_date=start_date, end_date=end_date)
+        return [pd.Timestamp(day).date() for day in trading_days]
+    
+    def run_backtest(self, start_date, end_date, strategy_func, price_data, cycle_data):
+        """
+        執行回測
+        
+        參數:
+        - start_date: 起始日期（'YYYY-MM-DD' 或 datetime）
+        - end_date: 結束日期（'YYYY-MM-DD' 或 datetime）
+        - strategy_func: 策略函數
+        - price_data: 股價資料 DataFrame（包含 date, ticker, close）
+        - cycle_data: 景氣燈號資料 DataFrame（包含 date, score, val_shifted）
+        
+        回傳:
+        - 回測結果字典
+        """
+        # 轉換日期格式
+        if isinstance(start_date, str):
+            start_date = pd.Timestamp(start_date).date()
+        if isinstance(end_date, str):
+            end_date = pd.Timestamp(end_date).date()
+        
+        # 取得交易日列表
+        trading_days = self.get_trading_dates(start_date, end_date)
+        
+        print(f"[Info] 開始回測：{start_date} 至 {end_date}")
+        print(f"[Info] 交易日數：{len(trading_days)} 天")
+        print(f"[Info] 初始資金：{self.initial_capital:,.0f} 元")
+        
+        # 準備資料
+        self.cycle_data = cycle_data.copy()
+        self.cycle_data['date'] = pd.to_datetime(self.cycle_data['date']).dt.date()
+        self.cycle_data = self.cycle_data.set_index('date')
+        
+        # 初始化策略狀態
+        strategy_state = {
+            'state': False,  # 是否持有股票
+            'hedge_state': False,  # 是否持有避險資產
+            'score': None,
+            'a': 0  # 是否已進入景氣循環
+        }
+        
+        # 每日迭代
+        for i, date in enumerate(trading_days):
+            self.dates.append(date)
+            
+            # 取得當日景氣燈號分數（使用前一日的 val_shifted）
+            score = None
+            val_shifted = None
+            
+            if date in self.cycle_data.index:
+                row = self.cycle_data.loc[date]
+                score = row.get('score')
+                val_shifted = row.get('val_shifted')
+            else:
+                # 如果找不到當日資料，使用前一個有效日期的資料
+                try:
+                    prev_date = max([d for d in self.cycle_data.index if d <= date])
+                    row = self.cycle_data.loc[prev_date]
+                    score = row.get('score')
+                    val_shifted = row.get('val_shifted')
+                except:
+                    pass
+            
+            if val_shifted is None:
+                # 如果沒有景氣燈號資料，跳過
+                continue
+            
+            strategy_state['score'] = val_shifted
+            
+            # 取得當日股價資料
+            date_str = date.strftime('%Y%m%d')
+            date_price_data = price_data[price_data['date'] == date_str].copy()
+            
+            if date_price_data.empty:
+                # 如果沒有股價資料，跳過
+                continue
+            
+            # 建立價格字典
+            price_dict = {}
+            for _, row in date_price_data.iterrows():
+                price_dict[row['ticker']] = row['close']
+            
+            # 執行策略
+            # 為等比例配置策略提供持倉資訊
+            portfolio_value_before = self._calculate_portfolio_value(date, price_dict)
+            orders = strategy_func(strategy_state, date, price_dict, self.positions, portfolio_value_before)
+            
+            # 執行訂單
+            if orders:
+                for order in orders:
+                    self._execute_order(order, date, price_dict)
+            
+            # 計算投資組合價值
+            portfolio_value = self._calculate_portfolio_value(date, price_dict)
+            self.portfolio_value.append(portfolio_value)
+            
+            # 計算報酬率
+            if i == 0:
+                self.returns.append(0.0)
+            else:
+                prev_value = self.portfolio_value[-2] if len(self.portfolio_value) > 1 else self.initial_capital
+                daily_return = (portfolio_value - prev_value) / prev_value
+                self.returns.append(daily_return)
+        
+        # 計算績效指標
+        metrics = self._calculate_metrics()
+        
+        return {
+            'dates': self.dates,
+            'portfolio_value': self.portfolio_value,
+            'returns': self.returns,
+            'trades': self.trades,
+            'metrics': metrics,
+            'final_value': self.portfolio_value[-1] if self.portfolio_value else self.initial_capital,
+            'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0
+        }
+    
+    def _execute_order(self, order, date, price_dict):
+        """
+        執行訂單
+        
+        參數:
+        - order: 訂單字典 {'action': 'buy'/'sell', 'ticker': str, 'shares': int, 'percent': float}
+        - date: 交易日期
+        - price_dict: 價格字典
+        """
+        action = order.get('action')
+        ticker = order.get('ticker')
+        
+        if ticker not in price_dict:
+            print(f"[Warning] {date} {ticker} 無價格資料，跳過訂單")
+            return
+        
+        price = price_dict[ticker]
+        
+        if action == 'buy':
+            # 買進
+            shares = order.get('shares', 0)
+            percent = order.get('percent', 0)
+            
+            if percent > 0:
+                # 使用百分比計算股數
+                target_value = (self.cash + self._calculate_positions_value(price_dict)) * percent
+                shares = int(target_value / price / 1000) * 1000  # 以千股為單位
+            
+            if shares <= 0:
+                return
+            
+            cost = shares * price
+            commission = self.calculate_commission(cost)
+            total_cost = cost + commission
+            
+            if total_cost > self.cash:
+                # 現金不足，調整股數
+                available_cash = self.cash - commission
+                shares = int(available_cash / price / 1000) * 1000
+                cost = shares * price
+                total_cost = cost + commission
+            
+            if shares <= 0 or total_cost > self.cash:
+                return
+            
+            # 執行買進
+            self.cash -= total_cost
+            
+            if ticker in self.positions:
+                self.positions[ticker] += shares
+            else:
+                self.positions[ticker] = shares
+            
+            # 記錄交易
+            self.trades.append({
+                'date': date,
+                'action': 'buy',
+                'ticker': ticker,
+                'shares': shares,
+                'price': price,
+                'cost': cost,
+                'commission': commission,
+                'total_cost': total_cost
+            })
+        
+        elif action == 'sell':
+            # 賣出
+            shares = order.get('shares', 0)
+            percent = order.get('percent', 0)
+            
+            if ticker not in self.positions or self.positions[ticker] <= 0:
+                return
+            
+            if percent > 0:
+                # 使用百分比計算股數
+                current_shares = self.positions[ticker]
+                shares = int(current_shares * percent / 1000) * 1000
+            
+            shares = min(shares, self.positions[ticker])
+            
+            if shares <= 0:
+                return
+            
+            proceeds = shares * price
+            commission = self.calculate_commission(proceeds)
+            tax = self.calculate_tax(proceeds)
+            net_proceeds = proceeds - commission - tax
+            
+            # 執行賣出
+            self.positions[ticker] -= shares
+            if self.positions[ticker] <= 0:
+                del self.positions[ticker]
+            
+            self.cash += net_proceeds
+            
+            # 記錄交易
+            self.trades.append({
+                'date': date,
+                'action': 'sell',
+                'ticker': ticker,
+                'shares': shares,
+                'price': price,
+                'proceeds': proceeds,
+                'commission': commission,
+                'tax': tax,
+                'net_proceeds': net_proceeds
+            })
+    
+    def _calculate_positions_value(self, price_dict):
+        """計算持倉價值"""
+        total_value = 0
+        for ticker, shares in self.positions.items():
+            if ticker in price_dict:
+                total_value += shares * price_dict[ticker]
+        return total_value
+    
+    def _calculate_portfolio_value(self, date, price_dict):
+        """計算投資組合總價值"""
+        positions_value = self._calculate_positions_value(price_dict)
+        return self.cash + positions_value
+    
+    def _calculate_metrics(self):
+        """計算績效指標"""
+        if not self.returns:
+            return {}
+        
+        returns_array = np.array(self.returns)
+        
+        # 總報酬率
+        total_return = (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0
+        
+        # 年化報酬率
+        years = len(self.dates) / 252  # 假設一年 252 個交易日
+        annualized_return = (1 + total_return) ** (1 / years) - 1 if years > 0 else 0
+        
+        # 波動度（年化）
+        volatility = np.std(returns_array) * np.sqrt(252)
+        
+        # 夏普比率（假設無風險利率為 0）
+        sharpe_ratio = annualized_return / volatility if volatility > 0 else 0
+        
+        # 最大回落
+        cumulative = np.cumprod(1 + returns_array)
+        running_max = np.maximum.accumulate(cumulative)
+        drawdown = (cumulative - running_max) / running_max
+        max_drawdown = np.min(drawdown)
+        
+        return {
+            'total_return': total_return,
+            'annualized_return': annualized_return,
+            'volatility': volatility,
+            'sharpe_ratio': sharpe_ratio,
+            'max_drawdown': max_drawdown,
+            'total_trades': len(self.trades)
+        }
+
