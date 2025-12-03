@@ -37,6 +37,11 @@ class DatabaseManager:
         # 確保上市/上櫃股票資料表含必要欄位
         self.ensure_table_column('tw_stock_price_data', 'odd_lot_filled', 'INTEGER DEFAULT 0')
         self.ensure_table_column('tw_otc_stock_price_data', 'odd_lot_filled', 'INTEGER DEFAULT 0')
+        # 確保領先指標資料表含 M1B 年增率欄位
+        self.ensure_table_column('leading_indicators_data', 'm1b_yoy_month', 'REAL')
+        self.ensure_table_column('leading_indicators_data', 'm1b_yoy_momentum', 'REAL')
+        self.ensure_table_column('leading_indicators_data', 'm1b_mom', 'REAL')
+        self.ensure_table_column('leading_indicators_data', 'm1b_vs_3m_avg', 'REAL')
     
     def get_connection(self):
         """取得資料庫連接"""
@@ -659,4 +664,168 @@ class DatabaseManager:
             raise
         finally:
             conn.close()
+    
+    def init_leading_indicators_table(self):
+        """
+        初始化領先指標資料表（leading_indicators_data）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS leading_indicators_data (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    export_order_index REAL,
+                    m1b_money_supply REAL,
+                    m1b_yoy_month REAL,
+                    m1b_yoy_momentum REAL,
+                    m1b_mom REAL,
+                    m1b_vs_3m_avg REAL,
+                    stock_price_index REAL,
+                    employment_net_entry_rate REAL,
+                    building_floor_area REAL,
+                    semiconductor_import REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 領先指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化領先指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_coincident_indicators_table(self):
+        """
+        初始化同時指標資料表（coincident_indicators_data）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS coincident_indicators_data (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    industrial_production_index REAL,
+                    electricity_consumption REAL,
+                    manufacturing_sales_index REAL,
+                    wholesale_retail_revenue REAL,
+                    overtime_hours REAL,
+                    export_value REAL,
+                    machinery_import REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 同時指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化同時指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_lagging_indicators_table(self):
+        """
+        初始化落後指標資料表（lagging_indicators_data）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS lagging_indicators_data (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    unemployment_rate REAL,
+                    labor_cost_index REAL,
+                    loan_interest_rate REAL,
+                    financial_institution_loans REAL,
+                    manufacturing_inventory REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 落後指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化落後指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_composite_indicators_table(self):
+        """
+        初始化綜合指標資料表（composite_indicators_data）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS composite_indicators_data (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    leading_index REAL,
+                    leading_index_no_trend REAL,
+                    coincident_index REAL,
+                    coincident_index_no_trend REAL,
+                    lagging_index REAL,
+                    lagging_index_no_trend REAL,
+                    business_cycle_score REAL,
+                    business_cycle_signal TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 綜合指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化綜合指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_business_cycle_signal_components_table(self):
+        """
+        初始化景氣對策信號構成項目資料表（business_cycle_signal_components_data）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS business_cycle_signal_components_data (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    m1b_money_supply REAL,
+                    stock_price_index REAL,
+                    industrial_production_index REAL,
+                    overtime_hours REAL,
+                    export_value REAL,
+                    machinery_import REAL,
+                    manufacturing_sales_index REAL,
+                    wholesale_retail_revenue REAL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 景氣對策信號構成項目資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化景氣對策信號構成項目資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_all_indicator_tables(self):
+        """
+        初始化所有景氣指標資料表
+        """
+        self.init_leading_indicators_table()
+        self.init_coincident_indicators_table()
+        self.init_lagging_indicators_table()
+        self.init_composite_indicators_table()
+        self.init_business_cycle_signal_components_table()
+        print("[Info] 所有景氣指標資料表初始化完成")
 

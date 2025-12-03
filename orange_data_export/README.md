@@ -115,3 +115,12 @@ python orange_data_export/export_for_prediction.py --db-path "D:\your_path\taiwa
 - 檢查檔案路徑中是否有特殊字元
 - 嘗試用 Excel 開啟 CSV 確認格式正確
 
+
+
+
+
+
+
+
+
+

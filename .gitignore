@@ -180,5 +180,8 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# CSV files
-*.csv
+# 策略回測結果目錄（包含所有回測結果、圖表、Power BI 檔案等）
+策略結果/
+
+# 景氣週期資料目錄（包含景氣指標與燈號等原始資料 CSV）
+business_cycle/

@@ -35,6 +35,8 @@ class BacktestEngine:
         
         # 景氣燈號資料
         self.cycle_data = None
+        # M1B 資料
+        self.m1b_data = None
     
     def calculate_commission(self, value):
         """計算手續費"""
@@ -51,7 +53,7 @@ class BacktestEngine:
         trading_days = cal.valid_days(start_date=start_date, end_date=end_date)
         return [pd.Timestamp(day).date() for day in trading_days]
     
-    def run_backtest(self, start_date, end_date, strategy_func, price_data, cycle_data):
+    def run_backtest(self, start_date, end_date, strategy_func, price_data, cycle_data, m1b_data=None):
         """
         執行回測
         
@@ -61,6 +63,7 @@ class BacktestEngine:
         - strategy_func: 策略函數
         - price_data: 股價資料 DataFrame（包含 date, ticker, close）
         - cycle_data: 景氣燈號資料 DataFrame（包含 date, score, val_shifted）
+        - m1b_data: M1B 資料 DataFrame（可選，包含 date, m1b_yoy_month, m1b_yoy_momentum, m1b_mom, m1b_vs_3m_avg）
         
         回傳:
         - 回測結果字典
@@ -80,16 +83,64 @@ class BacktestEngine:
         
         # 準備資料
         self.cycle_data = cycle_data.copy()
-        self.cycle_data['date'] = pd.to_datetime(self.cycle_data['date']).dt.date()
+        # 處理 date 欄位：轉換為 date 對象
+        if 'date' in self.cycle_data.columns:
+            try:
+                # cycle_data 的 date 欄位已經是 pd.Timestamp 類型（datetime64）
+                # 直接轉換為 date 對象（.dt.date 是屬性，返回 date 對象的 Series）
+                date_col = self.cycle_data['date']
+                # 檢查是否已經是 datetime 類型
+                if str(date_col.dtype).startswith('datetime'):
+                    self.cycle_data['date'] = date_col.dt.date
+                else:
+                    # 如果不是 datetime，先轉換
+                    self.cycle_data['date'] = pd.to_datetime(date_col, errors='coerce').dt.date
+            except Exception as e:
+                print(f"[Warning] cycle_data 日期轉換失敗: {e}")
+                # 如果轉換失敗，嘗試直接使用（可能是已經是 date 類型）
+                pass
         self.cycle_data = self.cycle_data.set_index('date')
+        
+        # 準備 M1B 資料（如果提供）
+        if m1b_data is not None and not m1b_data.empty:
+            self.m1b_data = m1b_data.copy()
+            # 確保 date 欄位存在
+            if 'date' in self.m1b_data.columns:
+                # M1B 資料的 date 欄位是字串格式（YYYYMMDD）
+                try:
+                    date_col = self.m1b_data['date']
+                    # 檢查是否已經是 datetime 類型
+                    if str(date_col.dtype).startswith('datetime'):
+                        self.m1b_data['date'] = date_col.dt.date
+                    else:
+                        # 從 YYYYMMDD 字串格式轉換
+                        self.m1b_data['date'] = pd.to_datetime(date_col, format='%Y%m%d', errors='coerce').dt.date
+                    self.m1b_data = self.m1b_data.set_index('date')
+                except Exception as e:
+                    print(f"[Warning] M1B 資料日期轉換失敗: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    self.m1b_data = None
+        else:
+            self.m1b_data = None
         
         # 初始化策略狀態
         strategy_state = {
             'state': False,  # 是否持有股票
             'hedge_state': False,  # 是否持有避險資產
             'score': None,
-            'a': 0  # 是否已進入景氣循環
+            'prev_score': None,  # 上月景氣分數（用於計算分數動能）
+            'a': 0,  # 是否已進入景氣循環
+            'm1b_yoy_month': None,  # M1B 年增率
+            'm1b_yoy_momentum': None,  # M1B 動能
+            'm1b_mom': None,  # M1B 月對月變化率
+            'm1b_vs_3m_avg': None,  # M1B vs 前三個月平均
+            'score_momentum': None  # 景氣分數動能
         }
+        
+        # 用於追蹤上一個月的景氣分數（用於計算動能）
+        prev_month_score = None
+        prev_month_date = None
         
         # 每日迭代
         for i, date in enumerate(trading_days):
@@ -117,7 +168,55 @@ class BacktestEngine:
                 # 如果沒有景氣燈號資料，跳過
                 continue
             
-            strategy_state['score'] = val_shifted
+            # 更新景氣分數和動能
+            # 注意：score 是當月原始分數，val_shifted 是前一個月的分數（用於交易決策）
+            strategy_state['score'] = val_shifted  # 使用 val_shifted 作為交易決策依據
+            
+            # 計算分數動能（比較不同月份的原始分數）
+            # 由於景氣燈號是月資料，需要追蹤月份變化
+            current_month = date.month
+            current_year = date.year
+            
+            if prev_month_date is not None:
+                prev_month = prev_month_date.month
+                prev_year = prev_month_date.year
+                
+                # 檢查是否跨月（考慮跨年情況）
+                if (current_year > prev_year) or (current_year == prev_year and current_month != prev_month):
+                    # 跨月了，可以計算動能
+                    if prev_month_score is not None and score is not None:
+                        strategy_state['score_momentum'] = score - prev_month_score
+                    prev_month_score = score
+                    prev_month_date = date
+                else:
+                    # 同一個月內，保持上一個月的動能值（或 None）
+                    # score_momentum 保持不變
+                    pass
+            else:
+                # 第一次，記錄當月分數
+                prev_month_score = score
+                prev_month_date = date
+                strategy_state['score_momentum'] = None
+            
+            # 取得 M1B 資料（如果可用）
+            if self.m1b_data is not None:
+                # M1B 是月資料，需要找到對應的月份資料
+                m1b_row = None
+                if date in self.m1b_data.index:
+                    m1b_row = self.m1b_data.loc[date]
+                else:
+                    # 如果找不到當日資料，使用前一個有效日期的資料
+                    try:
+                        prev_m1b_date = max([d for d in self.m1b_data.index if d <= date])
+                        m1b_row = self.m1b_data.loc[prev_m1b_date]
+                    except:
+                        pass
+                
+                if m1b_row is not None:
+                    strategy_state['m1b_yoy_month'] = m1b_row.get('m1b_yoy_month')
+                    strategy_state['m1b_yoy_momentum'] = m1b_row.get('m1b_yoy_momentum')
+                    strategy_state['m1b_mom'] = m1b_row.get('m1b_mom')
+                    strategy_state['m1b_vs_3m_avg'] = m1b_row.get('m1b_vs_3m_avg')
             
             # 取得當日股價資料
             date_str = date.strftime('%Y%m%d')
@@ -314,12 +413,191 @@ class BacktestEngine:
         drawdown = (cumulative - running_max) / running_max
         max_drawdown = np.min(drawdown)
         
+        # 計算額外指標
+        turnover_rate = self._calculate_turnover_rate()
+        avg_holding_period = self._calculate_avg_holding_period()
+        win_rate = self._calculate_win_rate()
+        
         return {
             'total_return': total_return,
             'annualized_return': annualized_return,
             'volatility': volatility,
             'sharpe_ratio': sharpe_ratio,
             'max_drawdown': max_drawdown,
-            'total_trades': len(self.trades)
+            'total_trades': len(self.trades),
+            'turnover_rate': turnover_rate,
+            'avg_holding_period': avg_holding_period,
+            'win_rate': win_rate
+        }
+    
+    def _calculate_turnover_rate(self):
+        """計算換手率（年化）"""
+        if not self.trades or not self.portfolio_value:
+            return 0.0
+        
+        # 計算總交易金額
+        total_trade_value = 0
+        for trade in self.trades:
+            if trade['action'] == 'buy':
+                total_trade_value += trade.get('total_cost', 0)
+            elif trade['action'] == 'sell':
+                total_trade_value += trade.get('proceeds', 0)
+        
+        # 計算平均投資組合價值
+        if self.portfolio_value:
+            avg_portfolio_value = np.mean(self.portfolio_value)
+        else:
+            avg_portfolio_value = self.initial_capital
+        
+        # 計算年化換手率
+        if avg_portfolio_value > 0:
+            years = len(self.dates) / 252 if self.dates else 1
+            turnover_rate = (total_trade_value / avg_portfolio_value) / years if years > 0 else 0
+            return turnover_rate * 100  # 轉換為百分比
+        return 0.0
+    
+    def _calculate_avg_holding_period(self):
+        """計算平均持倉期間（天）"""
+        if not self.trades:
+            return 0.0
+        
+        # 追蹤每個標的的買進和賣出時間
+        positions = {}  # {ticker: [(buy_date, shares), ...]}
+        holding_periods = []
+        
+        for trade in self.trades:
+            ticker = trade['ticker']
+            date = trade['date']
+            action = trade['action']
+            shares = trade['shares']
+            
+            if action == 'buy':
+                if ticker not in positions:
+                    positions[ticker] = []
+                positions[ticker].append((date, shares))
+            elif action == 'sell':
+                if ticker in positions and positions[ticker]:
+                    # 使用 FIFO 原則計算持倉期間
+                    remaining_shares = shares
+                    while remaining_shares > 0 and positions[ticker]:
+                        buy_date, buy_shares = positions[ticker][0]
+                        if buy_shares <= remaining_shares:
+                            # 完全賣出這筆持倉
+                            holding_days = (date - buy_date).days
+                            holding_periods.append(holding_days)
+                            remaining_shares -= buy_shares
+                            positions[ticker].pop(0)
+                        else:
+                            # 部分賣出
+                            holding_days = (date - buy_date).days
+                            holding_periods.append(holding_days)
+                            positions[ticker][0] = (buy_date, buy_shares - remaining_shares)
+                            remaining_shares = 0
+        
+        if holding_periods:
+            return np.mean(holding_periods)
+        return 0.0
+    
+    def _calculate_win_rate(self):
+        """計算勝率（獲利交易比例）"""
+        if not self.trades:
+            return 0.0
+        
+        # 追蹤每個標的的買進和賣出
+        positions = {}  # {ticker: [(buy_date, buy_price, shares), ...]}
+        profitable_trades = 0
+        total_sell_trades = 0
+        
+        for trade in self.trades:
+            ticker = trade['ticker']
+            date = trade['date']
+            action = trade['action']
+            shares = trade['shares']
+            price = trade['price']
+            
+            if action == 'buy':
+                if ticker not in positions:
+                    positions[ticker] = []
+                positions[ticker].append((date, price, shares))
+            elif action == 'sell':
+                if ticker in positions and positions[ticker]:
+                    total_sell_trades += 1
+                    # 使用 FIFO 原則計算盈虧
+                    remaining_shares = shares
+                    while remaining_shares > 0 and positions[ticker]:
+                        buy_date, buy_price, buy_shares = positions[ticker][0]
+                        if buy_shares <= remaining_shares:
+                            # 完全賣出這筆持倉
+                            if price > buy_price:
+                                profitable_trades += 1
+                            remaining_shares -= buy_shares
+                            positions[ticker].pop(0)
+                        else:
+                            # 部分賣出
+                            if price > buy_price:
+                                profitable_trades += 1
+                            positions[ticker][0] = (buy_date, buy_price, buy_shares - remaining_shares)
+                            remaining_shares = 0
+        
+        if total_sell_trades > 0:
+            return (profitable_trades / total_sell_trades) * 100  # 轉換為百分比
+        return 0.0
+    
+    def generate_position_summary(self):
+        """產生持倉變動摘要"""
+        if not self.trades:
+            return {
+                'total_trades': 0,
+                'buy_trades': 0,
+                'sell_trades': 0,
+                'avg_holding_period': 0,
+                'max_holding_period': 0,
+                'min_holding_period': 0
+            }
+        
+        buy_count = sum(1 for t in self.trades if t['action'] == 'buy')
+        sell_count = sum(1 for t in self.trades if t['action'] == 'sell')
+        avg_holding = self._calculate_avg_holding_period()
+        
+        # 計算最長和最短持倉期間
+        holding_periods = []
+        positions = {}
+        
+        for trade in self.trades:
+            ticker = trade['ticker']
+            date = trade['date']
+            action = trade['action']
+            shares = trade['shares']
+            
+            if action == 'buy':
+                if ticker not in positions:
+                    positions[ticker] = []
+                positions[ticker].append((date, shares))
+            elif action == 'sell':
+                if ticker in positions and positions[ticker]:
+                    remaining_shares = shares
+                    while remaining_shares > 0 and positions[ticker]:
+                        buy_date, buy_shares = positions[ticker][0]
+                        if buy_shares <= remaining_shares:
+                            holding_days = (date - buy_date).days
+                            holding_periods.append(holding_days)
+                            remaining_shares -= buy_shares
+                            positions[ticker].pop(0)
+                        else:
+                            holding_days = (date - buy_date).days
+                            holding_periods.append(holding_days)
+                            positions[ticker][0] = (buy_date, buy_shares - remaining_shares)
+                            remaining_shares = 0
+        
+        max_holding = max(holding_periods) if holding_periods else 0
+        min_holding = min(holding_periods) if holding_periods else 0
+        
+        return {
+            'total_trades': len(self.trades),
+            'buy_trades': buy_count,
+            'sell_trades': sell_count,
+            'avg_holding_period': avg_holding,
+            'max_holding_period': max_holding,
+            'min_holding_period': min_holding
         }
 

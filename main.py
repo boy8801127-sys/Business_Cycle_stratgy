@@ -23,13 +23,17 @@ if os.name == 'nt':
 
 from data_collection.database_manager import DatabaseManager
 from data_collection.cycle_data_collector import CycleDataCollector
+from data_collection.indicator_data_collector import IndicatorDataCollector
 from data_collection.stock_data_collector import StockDataCollector
 from data_collection.otc_data_collector import OTCDataCollector
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.strategy import (
     ShortTermBondStrategy, CashStrategy, LongTermBondStrategy,
     InverseETFStrategy, FiftyFiftyStrategy,
-    ProportionalAllocationStrategy, TSMCProportionalAllocationStrategy
+    ProportionalAllocationStrategy, TSMCProportionalAllocationStrategy,
+    BuyAndHoldStrategy, M1BFilterCashStrategy, M1BFilterBondStrategy,
+    M1BFilterProportionalStrategy, DynamicPositionCashStrategy,
+    DynamicPositionBondStrategy, DynamicPositionProportionalStrategy
 )
 from data_validation.price_validator import PriceValidator
 
@@ -53,39 +57,179 @@ def print_menu():
 
 
 def load_cycle_data():
-    """選項 1：讀取景氣燈號資料"""
-    print("\n[選項 1] 讀取景氣燈號資料")
+    """選項 1：讀取景氣燈號與指標資料"""
+    print("\n[選項 1] 讀取景氣燈號與指標資料")
     print("-" * 60)
     
-    csv_path = 'business_cycle/景氣指標與燈號.csv'
+    print("\n請選擇要匯入的資料：")
+    print("1. 只匯入景氣燈號資料（business_cycle_data）")
+    print("2. 匯入所有景氣指標資料（一鍵更新，包含 6 個資料表）")
+    print("3. 選擇性匯入特定指標")
     
-    collector = CycleDataCollector(csv_path)
+    choice = input("\n請選擇（1-3，預設 2）: ").strip()
+    if not choice:
+        choice = '2'
+    
+    # 設定日期範圍
+    start_date = input("起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
+    start_date = start_date if start_date else '2015-01-01'
+    
+    end_date = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
+    end_date = end_date if end_date else datetime.now().strftime('%Y-%m-%d')
+    
+    db_manager = DatabaseManager()
     
     try:
-        # 處理資料
-        start_date = '2015-01-01'
-        end_date = datetime.now().strftime('%Y-%m-%d')
-        
-        print(f"處理日期範圍：{start_date} 至 {end_date}")
-        daily_df = collector.process_cycle_data(start_date, end_date)
-        
-        if daily_df.empty:
-            print("[Error] 無法讀取景氣燈號資料")
-            return
-        
-        print(f"\n[Info] 成功處理 {len(daily_df)} 筆交易日資料")
-        print("\n前 5 筆資料：")
-        print(daily_df[['date_str', 'score', 'val_shifted', 'signal']].head())
-        
-        # 儲存到資料庫（可選）
-        save_to_db = input("\n是否儲存到資料庫？(y/n): ").strip().lower()
-        if save_to_db == 'y':
-            db_manager = DatabaseManager()
+        if choice == '1':
+            # 只匯入景氣燈號資料（原有功能）
+            csv_path = 'business_cycle/景氣指標與燈號.csv'
+            collector = CycleDataCollector(csv_path)
+            
+            print(f"\n處理日期範圍：{start_date} 至 {end_date}")
+            daily_df = collector.process_cycle_data(start_date, end_date)
+            
+            if daily_df.empty:
+                print("[Error] 無法讀取景氣燈號資料")
+                return
+            
+            print(f"\n[Info] 成功處理 {len(daily_df)} 筆交易日資料")
+            print("\n前 5 筆資料：")
+            print(daily_df[['date_str', 'score', 'val_shifted', 'signal']].head())
+            
+            # 儲存到資料庫
             collector.save_cycle_data_to_db(db_manager)
-            print("[Info] 資料已儲存到資料庫")
+            print("[Info] 景氣燈號資料已儲存到資料庫")
+            
+        elif choice == '2':
+            # 一鍵匯入所有景氣指標資料
+            print(f"\n{'='*60}")
+            print("一鍵匯入所有景氣指標資料")
+            print(f"{'='*60}")
+            print(f"處理日期範圍：{start_date} 至 {end_date}")
+            
+            # 初始化所有資料表
+            print("\n[步驟 1] 初始化資料表...")
+            db_manager.init_all_indicator_tables()
+            
+            # 匯入景氣燈號資料（business_cycle_data）
+            print(f"\n[步驟 2] 匯入景氣燈號資料...")
+            csv_path = 'business_cycle/景氣指標與燈號.csv'
+            collector = CycleDataCollector(csv_path)
+            daily_df = collector.process_cycle_data(start_date, end_date)
+            if not daily_df.empty:
+                collector.save_cycle_data_to_db(db_manager)
+                print(f"[Success] 景氣燈號資料匯入成功，共 {len(daily_df)} 筆")
+            else:
+                print("[Warning] 景氣燈號資料為空")
+            
+            # 匯入所有其他指標資料
+            print(f"\n[步驟 3] 匯入其他景氣指標資料...")
+            indicator_collector = IndicatorDataCollector()
+            results = indicator_collector.import_all_indicators(db_manager, start_date, end_date)
+            
+            # 顯示匯入結果統計
+            print(f"\n{'='*60}")
+            print("匯入結果統計")
+            print(f"{'='*60}")
+            success_count = sum(1 for r in results.values() if r.get('success', False))
+            total_count = len(results)
+            print(f"成功：{success_count}/{total_count} 個資料表")
+            
+            for csv_name, result in results.items():
+                if result.get('success', False):
+                    print(f"  ✓ {csv_name}: {result.get('records', 0)} 筆")
+                else:
+                    print(f"  ✗ {csv_name}: {result.get('error', '未知錯誤')}")
+            
+            # 計算 M1B 年增率（如果匯入了領先指標）
+            leading_indicators_imported = False
+            for csv_name, result in results.items():
+                if csv_name == '領先指標構成項目.csv' and result.get('success', False):
+                    leading_indicators_imported = True
+                    break
+            
+            if leading_indicators_imported:
+                print(f"\n[步驟 4] 計算 M1B 年增率...")
+                from data_collection.m1b_calculator import M1BCalculator
+                calculator = M1BCalculator()
+                update_stats = calculator.calculate_and_update(db_manager)
+                if update_stats.get('success'):
+                    print(f"[Success] M1B 年增率計算完成")
+                    print(f"  - 月對月年增率：更新 {update_stats.get('yoy_month_count', 0)} 筆")
+                    print(f"  - 年增率動能：更新 {update_stats.get('yoy_momentum_count', 0)} 筆")
+                    print(f"  - 月對月變化率：更新 {update_stats.get('mom_count', 0)} 筆")
+                    print(f"  - 當月 vs 前三個月平均：更新 {update_stats.get('vs_3m_avg_count', 0)} 筆")
+            
+        elif choice == '3':
+            # 選擇性匯入
+            print("\n可選擇的指標：")
+            print("1. 景氣燈號資料（business_cycle_data）")
+            print("2. 領先指標構成項目")
+            print("3. 同時指標構成項目")
+            print("4. 落後指標構成項目")
+            print("5. 景氣指標與燈號（綜合指標）")
+            print("6. 景氣對策信號構成項目")
+            
+            selected = input("\n請選擇要匯入的項目（多個請用逗號分隔，例如：1,2,3）: ").strip()
+            if not selected:
+                print("[Info] 未選擇任何項目")
+                return
+            
+            selected_list = [s.strip() for s in selected.split(',')]
+            
+            # 初始化所有資料表
+            print("\n[步驟 1] 初始化資料表...")
+            db_manager.init_all_indicator_tables()
+            
+            indicator_collector = IndicatorDataCollector()
+            
+            # 匯入選定的資料
+            for sel in selected_list:
+                if sel == '1':
+                    # 景氣燈號資料
+                    print(f"\n匯入景氣燈號資料...")
+                    csv_path = 'business_cycle/景氣指標與燈號.csv'
+                    collector = CycleDataCollector(csv_path)
+                    daily_df = collector.process_cycle_data(start_date, end_date)
+                    if not daily_df.empty:
+                        collector.save_cycle_data_to_db(db_manager)
+                        print(f"[Success] 景氣燈號資料匯入成功，共 {len(daily_df)} 筆")
+                elif sel == '2':
+                    result = indicator_collector.import_single_indicator('領先指標構成項目.csv', db_manager, start_date, end_date)
+                    if result.get('success'):
+                        print(f"[Success] 領先指標匯入成功，共 {result.get('records', 0)} 筆")
+                        # 匯入成功後，立即計算 M1B 年增率
+                        print("\n計算 M1B 年增率...")
+                        from data_collection.m1b_calculator import M1BCalculator
+                        calculator = M1BCalculator()
+                        update_stats = calculator.calculate_and_update(db_manager)
+                        if update_stats.get('success'):
+                            print(f"[Success] M1B 年增率計算完成")
+                            print(f"  - 月對月年增率：更新 {update_stats.get('yoy_month_count', 0)} 筆")
+                            print(f"  - 年增率動能：更新 {update_stats.get('yoy_momentum_count', 0)} 筆")
+                            print(f"  - 月對月變化率：更新 {update_stats.get('mom_count', 0)} 筆")
+                            print(f"  - 當月 vs 前三個月平均：更新 {update_stats.get('vs_3m_avg_count', 0)} 筆")
+                elif sel == '3':
+                    result = indicator_collector.import_single_indicator('同時指標構成項目.csv', db_manager, start_date, end_date)
+                    if result.get('success'):
+                        print(f"[Success] 同時指標匯入成功，共 {result.get('records', 0)} 筆")
+                elif sel == '4':
+                    result = indicator_collector.import_single_indicator('落後指標構成項目.csv', db_manager, start_date, end_date)
+                    if result.get('success'):
+                        print(f"[Success] 落後指標匯入成功，共 {result.get('records', 0)} 筆")
+                elif sel == '5':
+                    result = indicator_collector.import_single_indicator('景氣指標與燈號.csv', db_manager, start_date, end_date)
+                    if result.get('success'):
+                        print(f"[Success] 綜合指標匯入成功，共 {result.get('records', 0)} 筆")
+                elif sel == '6':
+                    result = indicator_collector.import_single_indicator('景氣對策信號構成項目.csv', db_manager, start_date, end_date)
+                    if result.get('success'):
+                        print(f"[Success] 景氣對策信號構成項目匯入成功，共 {result.get('records', 0)} 筆")
+        
+        print("\n[Info] 所有資料匯入完成")
         
     except Exception as e:
-        print(f"[Error] 讀取景氣燈號資料失敗: {e}")
+        print(f"[Error] 匯入資料失敗: {e}")
         import traceback
         traceback.print_exc()
 
@@ -172,43 +316,104 @@ def run_backtest():
     print("\n[選項 3] 執行回測")
     print("-" * 60)
     
-    # 選擇策略
-    print("\n請選擇策略：")
-    print("1. 短天期美債避險（主資產 006208）")
-    print("2. 現金避險（主資產 006208）")
-    print("3. 長天期美債避險（主資產 006208）")
-    print("4. 反向ETF避險（主資產 006208）")
-    print("5. 50:50配置（006208 + 短債）")
-    print("6. 等比例配置（006208:短期美債）")
-    print("7. 等比例配置（台積電:短期美債）")
+    # 回測時間設定（允許自訂）
+    print("\n回測時間範圍設定：")
+    start_date_input = input("起始日期（YYYY-MM-DD，預設 2015-01-05）: ").strip()
+    if not start_date_input:
+        start_date = '2015-01-05'  # 預設起始日期
+    else:
+        # 驗證日期格式
+        try:
+            datetime.strptime(start_date_input, '%Y-%m-%d')
+            start_date = start_date_input
+        except ValueError:
+            print("[Warning] 日期格式錯誤，使用預設日期 2015-01-05")
+            start_date = '2015-01-05'
     
-    strategy_choice = input("請選擇（1-7，預設 1）: ").strip()
-    strategy_map = {
-        '1': ('ShortTermBond', ShortTermBondStrategy),
-        '2': ('Cash', CashStrategy),
-        '3': ('LongTermBond', LongTermBondStrategy),
-        '4': ('InverseETF', InverseETFStrategy),
-        '5': ('FiftyFifty', FiftyFiftyStrategy),
-        '6': ('ProportionalAllocation', ProportionalAllocationStrategy),
-        '7': ('TSMCProportionalAllocation', TSMCProportionalAllocationStrategy)
-    }
+    end_date_input = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
+    if not end_date_input:
+        end_date = datetime.now().strftime('%Y-%m-%d')  # 預設為今天
+    else:
+        # 驗證日期格式
+        try:
+            datetime.strptime(end_date_input, '%Y-%m-%d')
+            end_date = end_date_input
+        except ValueError:
+            print("[Warning] 日期格式錯誤，使用預設日期（今天）")
+            end_date = datetime.now().strftime('%Y-%m-%d')
     
-    strategy_name, strategy_class = strategy_map.get(strategy_choice, strategy_map['1'])
-    
-    # 設定日期範圍
-    start_date = input("起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
-    start_date = start_date if start_date else '2015-01-01'
-    
-    end_date = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
-    end_date = end_date if end_date else datetime.now().strftime('%Y-%m-%d')
+    # 驗證日期範圍合理性
+    try:
+        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
+        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
+        if start_dt > end_dt:
+            print("[Error] 起始日期不能晚於結束日期，已自動調整")
+            start_date, end_date = end_date, start_date
+    except ValueError:
+        pass  # 日期格式已在上面驗證過
     
     # 初始資金
-    capital = input("初始資金（預設 100,000）: ").strip()
-    capital = int(capital) if capital.isdigit() else 100000
+    capital = input("\n初始資金（預設 1,000,000）: ").strip()
+    capital = int(capital) if capital.isdigit() else 1000000
     
-    print(f"\n[Info] 開始回測：{strategy_name} 策略")
-    print(f"[Info] 日期範圍：{start_date} 至 {end_date}")
+    # 選擇執行模式
+    print("\n請選擇執行模式：")
+    print("1. 單一策略執行")
+    print("2. 全部策略執行（包含基準策略）")
+    
+    mode_choice = input("請選擇（1-2，預設 1）: ").strip()
+    if not mode_choice:
+        mode_choice = '1'
+    
+    # 定義所有策略
+    all_strategies = {
+        '0': ('BuyAndHold', BuyAndHoldStrategy, '006208', None, None),  # 基準策略
+        '1': ('ShortTermBond', ShortTermBondStrategy, '006208', '00865B', None),
+        '2': ('Cash', CashStrategy, '006208', None, None),
+        '3': ('LongTermBond', LongTermBondStrategy, '006208', '00687B', None),
+        '4': ('InverseETF', InverseETFStrategy, '006208', '00664R', None),
+        '5': ('FiftyFifty', FiftyFiftyStrategy, '006208', '00865B', None),
+        '6': ('ProportionalAllocation', ProportionalAllocationStrategy, '006208', '00865B', None),
+        '7': ('TSMCProportionalAllocation', TSMCProportionalAllocationStrategy, '2330', '00865B', None),
+        '8': ('M1BFilterCash', M1BFilterCashStrategy, '006208', None, 'M1B動能濾網'),
+        '9': ('M1BFilterBond', M1BFilterBondStrategy, '006208', '00865B', 'M1B動能濾網'),
+        '10': ('M1BFilterProportional', M1BFilterProportionalStrategy, '006208', '00865B', 'M1B動能濾網'),
+        '11': ('DynamicPositionCash', DynamicPositionCashStrategy, '006208', None, '動態倉位'),
+        '12': ('DynamicPositionBond', DynamicPositionBondStrategy, '006208', '00865B', '動態倉位'),
+        '13': ('DynamicPositionProportional', DynamicPositionProportionalStrategy, '006208', '00865B', '動態倉位')
+    }
+    
+    # 選擇要執行的策略
+    if mode_choice == '1':
+        # 單一策略執行
+        print("\n請選擇策略：")
+        print("0. 基準策略：買進並持有 006208")
+        print("1. 短天期美債避險（主資產 006208）")
+        print("2. 現金避險（主資產 006208）")
+        print("3. 長天期美債避險（主資產 006208）")
+        print("4. 反向ETF避險（主資產 006208）")
+        print("5. 50:50配置（006208 + 短債）")
+        print("6. 等比例配置（006208:短期美債）")
+        print("7. 等比例配置（台積電:短期美債）")
+        print("8. M1B 濾網 + 現金避險")
+        print("9. M1B 濾網 + 短債避險")
+        print("10. M1B 濾網 + 等比例配置")
+        print("11. 動態倉位 + 現金避險")
+        print("12. 動態倉位 + 短債避險")
+        print("13. 動態倉位 + 等比例配置")
+        
+        strategy_choice = input("請選擇（0-13，預設 1）: ").strip()
+        if not strategy_choice:
+            strategy_choice = '1'
+        
+        selected_strategies = [strategy_choice]
+    else:
+        # 全部策略執行
+        selected_strategies = list(all_strategies.keys())
+    
+    print(f"\n[Info] 回測時間：{start_date} 至 {end_date}")
     print(f"[Info] 初始資金：{capital:,} 元")
+    print(f"[Info] 將執行 {len(selected_strategies)} 個策略")
     
     try:
         # 讀取景氣燈號資料
@@ -220,15 +425,29 @@ def run_backtest():
             print("[Error] 無法讀取景氣燈號資料")
             return
         
-        # 讀取股價資料
-        print("\n[步驟 2] 讀取股價資料...")
+        # 讀取 M1B 資料
+        print("\n[步驟 1.5] 讀取 M1B 資料...")
         db_manager = DatabaseManager()
-        
         start_date_str = start_date.replace('-', '')
         end_date_str = end_date.replace('-', '')
         
-        # 取得需要的股票和ETF資料
-        tickers = ['006208', '00865B', '00687B', '00664R', '2330']  # 新增台積電
+        m1b_query = """
+            SELECT date, m1b_yoy_month, m1b_yoy_momentum, m1b_mom, m1b_vs_3m_avg
+            FROM leading_indicators_data
+            WHERE date >= ? AND date <= ?
+            ORDER BY date
+        """
+        m1b_data = db_manager.execute_query_dataframe(m1b_query, (start_date_str, end_date_str))
+        
+        if m1b_data.empty:
+            print("[Warning] 無法讀取 M1B 資料，部分策略可能無法正常運作")
+            m1b_data = None
+        else:
+            print(f"[Info] 成功讀取 {len(m1b_data)} 筆 M1B 資料")
+        
+        # 讀取股價資料
+        print("\n[步驟 2] 讀取股價資料...")
+        tickers = ['006208', '00865B', '00687B', '00664R', '2330']
         price_data_list = []
         
         for ticker in tickers:
@@ -243,37 +462,141 @@ def run_backtest():
         price_data = pd.concat(price_data_list, ignore_index=True)
         print(f"[Info] 成功讀取 {len(price_data)} 筆股價資料")
         
-        # 建立策略實例
-        if strategy_name == 'Cash':
-            strategy = strategy_class()
-        else:
-            strategy = strategy_class()
+        # 執行所有選定的策略
+        all_results = []
         
-        # 定義策略函數
-        def strategy_func(state, date, price_dict, positions=None, portfolio_value=None):
-            return strategy.generate_orders(state, date, price_dict, positions, portfolio_value)
+        for strategy_key in selected_strategies:
+            if strategy_key not in all_strategies:
+                continue
+            
+            strategy_name, strategy_class, stock_ticker, hedge_ticker, filter_name = all_strategies[strategy_key]
+            
+            print(f"\n[執行策略] {strategy_name}...")
+            
+            # 建立策略實例
+            try:
+                if strategy_name == 'BuyAndHold':
+                    strategy = strategy_class(stock_ticker)
+                elif strategy_name in ['Cash', 'M1BFilterCash', 'DynamicPositionCash']:
+                    strategy = strategy_class(stock_ticker)
+                elif strategy_name == 'TSMCProportionalAllocation':
+                    strategy = strategy_class(stock_ticker, hedge_ticker)
+                elif strategy_name in ['M1BFilterProportional', 'DynamicPositionProportional']:
+                    # 這些策略需要特殊處理（多重繼承）
+                    strategy = strategy_class(stock_ticker, hedge_ticker)
+                elif hedge_ticker:
+                    strategy = strategy_class(stock_ticker, hedge_ticker)
+                else:
+                    strategy = strategy_class(stock_ticker)
+            except Exception as e:
+                print(f"[Error] 建立策略 {strategy_name} 失敗: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 定義策略函數
+            def strategy_func(state, date, price_dict, positions=None, portfolio_value=None):
+                return strategy.generate_orders(state, date, price_dict, positions, portfolio_value)
+            
+            # 執行回測
+            engine = BacktestEngine(initial_capital=capital)
+            results = engine.run_backtest(start_date, end_date, strategy_func, price_data, cycle_data, m1b_data)
+            
+            # 產生持倉變動摘要
+            position_summary = engine.generate_position_summary()
+            
+            # 收集結果
+            all_results.append({
+                'strategy_name': strategy_name,
+                'stock_ticker': stock_ticker,
+                'hedge_ticker': hedge_ticker if hedge_ticker else 'null',
+                'filter_name': filter_name if filter_name else 'null',
+                'annualized_return': results['metrics']['annualized_return'] * 100,
+                'total_return': results['total_return'] * 100,
+                'volatility': results['metrics']['volatility'] * 100,
+                'sharpe_ratio': results['metrics']['sharpe_ratio'],
+                'max_drawdown': results['metrics']['max_drawdown'] * 100,
+                'turnover_rate': results['metrics'].get('turnover_rate', 0),
+                'avg_holding_period': results['metrics'].get('avg_holding_period', 0),
+                'win_rate': results['metrics'].get('win_rate', 0),
+                'total_trades': results['metrics']['total_trades'],
+                'position_summary': position_summary,
+                'trades': results['trades']
+            })
         
-        # 執行回測
-        print("\n[步驟 3] 執行回測...")
-        engine = BacktestEngine(initial_capital=capital)
-        results = engine.run_backtest(start_date, end_date, strategy_func, price_data, cycle_data)
+        # 輸出結果到 CSV
+        print("\n[步驟 3] 產生結果表格...")
+        export_results_to_csv(all_results, start_date, end_date)
         
-        # 顯示結果
+        # 顯示摘要結果
         print("\n" + "="*60)
-        print("回測結果")
+        print("回測結果摘要")
         print("="*60)
-        print(f"最終價值：{results['final_value']:,.0f} 元")
-        print(f"總報酬率：{results['total_return']*100:.2f}%")
-        print(f"年化報酬率：{results['metrics']['annualized_return']*100:.2f}%")
-        print(f"波動度：{results['metrics']['volatility']*100:.2f}%")
-        print(f"夏普比率：{results['metrics']['sharpe_ratio']:.2f}")
-        print(f"最大回落：{results['metrics']['max_drawdown']*100:.2f}%")
-        print(f"總交易次數：{results['metrics']['total_trades']}")
+        print(f"{'策略名稱':<25} {'年化報酬率':<12} {'累積報酬率':<12} {'夏普值':<8} {'最大回撤':<10}")
+        print("-" * 60)
+        for result in all_results:
+            print(f"{result['strategy_name']:<25} {result['annualized_return']:>10.2f}% {result['total_return']:>10.2f}% {result['sharpe_ratio']:>6.2f} {result['max_drawdown']:>8.2f}%")
         
     except Exception as e:
         print(f"[Error] 回測失敗: {e}")
         import traceback
         traceback.print_exc()
+
+
+def export_results_to_csv(all_results, start_date, end_date):
+    """輸出回測結果到 CSV 檔案"""
+    import os
+    
+    # 確保輸出目錄存在
+    output_dir = '策略結果'
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    # 產生檔案名稱
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    csv_filename = os.path.join(output_dir, f'backtest_results_{timestamp}.csv')
+    
+    # 準備資料
+    rows = []
+    for result in all_results:
+        position_summary = result['position_summary']
+        row = {
+            '策略名稱': result['strategy_name'],
+            '資產標的': result['stock_ticker'],
+            '避險資產': result['hedge_ticker'],
+            '濾網名稱': result['filter_name'],
+            '年化報酬率(%)': f"{result['annualized_return']:.2f}",
+            '累積報酬率(%)': f"{result['total_return']:.2f}",
+            '波動度(%)': f"{result['volatility']:.2f}",
+            '夏普值': f"{result['sharpe_ratio']:.2f}",
+            '最大回撤(%)': f"{result['max_drawdown']:.2f}",
+            '換手率(%)': f"{result['turnover_rate']:.2f}",
+            '平均持倉期間(天)': f"{result['avg_holding_period']:.1f}",
+            '勝率(%)': f"{result['win_rate']:.2f}",
+            '總交易次數': result['total_trades'],
+            '買進次數': position_summary['buy_trades'],
+            '賣出次數': position_summary['sell_trades'],
+            '最長持倉期間(天)': position_summary['max_holding_period'],
+            '最短持倉期間(天)': position_summary['min_holding_period']
+        }
+        rows.append(row)
+    
+    # 建立 DataFrame 並輸出
+    df_results = pd.DataFrame(rows)
+    df_results.to_csv(csv_filename, index=False, encoding='utf-8-sig')
+    
+    print(f"[Success] 結果已輸出至: {csv_filename}")
+    
+    # 同時輸出持倉變動詳細列表（如果交易次數不多）
+    for result in all_results:
+        if result['total_trades'] > 0 and result['total_trades'] <= 1000:  # 只輸出交易次數較少的策略
+            trades_filename = os.path.join(output_dir, f'position_changes_{result["strategy_name"]}_{timestamp}.csv')
+            trades_df = pd.DataFrame(result['trades'])
+            # 將日期轉換為字串格式以便 CSV 輸出
+            if 'date' in trades_df.columns:
+                trades_df['date'] = trades_df['date'].astype(str)
+            trades_df.to_csv(trades_filename, index=False, encoding='utf-8-sig')
+            print(f"[Info] {result['strategy_name']} 持倉變動詳細列表已輸出至: {trades_filename}")
 
 
 def generate_report():
