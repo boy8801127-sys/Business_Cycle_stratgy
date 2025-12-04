@@ -33,7 +33,8 @@ from backtesting.strategy import (
     ProportionalAllocationStrategy, TSMCProportionalAllocationStrategy,
     BuyAndHoldStrategy, M1BFilterCashStrategy, M1BFilterBondStrategy,
     M1BFilterProportionalStrategy, DynamicPositionCashStrategy,
-    DynamicPositionBondStrategy, DynamicPositionProportionalStrategy
+    DynamicPositionBondStrategy, DynamicPositionProportionalStrategy,
+    MultiplierAllocationCashStrategy, MultiplierAllocationBondStrategy
 )
 from data_validation.price_validator import PriceValidator
 
@@ -380,7 +381,9 @@ def run_backtest():
         '10': ('M1BFilterProportional', M1BFilterProportionalStrategy, '006208', '00865B', 'M1B動能濾網'),
         '11': ('DynamicPositionCash', DynamicPositionCashStrategy, '006208', None, '動態倉位'),
         '12': ('DynamicPositionBond', DynamicPositionBondStrategy, '006208', '00865B', '動態倉位'),
-        '13': ('DynamicPositionProportional', DynamicPositionProportionalStrategy, '006208', '00865B', '動態倉位')
+        '13': ('DynamicPositionProportional', DynamicPositionProportionalStrategy, '006208', '00865B', '動態倉位'),
+        '14': ('MultiplierAllocationCash', MultiplierAllocationCashStrategy, '006208', None, '倍數放大'),
+        '15': ('MultiplierAllocationBond', MultiplierAllocationBondStrategy, '006208', '00865B', '倍數放大')
     }
     
     # 選擇要執行的策略
@@ -401,8 +404,10 @@ def run_backtest():
         print("11. 動態倉位 + 現金避險")
         print("12. 動態倉位 + 短債避險")
         print("13. 動態倉位 + 等比例配置")
+        print("14. 倍數放大 + 現金避險")
+        print("15. 倍數放大 + 短債避險")
         
-        strategy_choice = input("請選擇（0-13，預設 1）: ").strip()
+        strategy_choice = input("請選擇（0-15，預設 1）: ").strip()
         if not strategy_choice:
             strategy_choice = '1'
         
@@ -451,9 +456,19 @@ def run_backtest():
         price_data_list = []
         
         for ticker in tickers:
-            df = db_manager.get_stock_price(ticker=ticker, start_date=start_date_str, end_date=end_date_str)
-            if not df.empty:
-                price_data_list.append(df)
+            # 先從上市資料表查詢
+            df_listed = db_manager.get_stock_price(ticker=ticker, start_date=start_date_str, end_date=end_date_str)
+            if not df_listed.empty:
+                price_data_list.append(df_listed)
+                print(f"[Info] 從上市市場讀取 {ticker}: {len(df_listed)} 筆")
+            else:
+                # 如果上市資料表沒有，再從上櫃資料表查詢
+                df_otc = db_manager.get_otc_stock_price(ticker=ticker, start_date=start_date_str, end_date=end_date_str)
+                if not df_otc.empty:
+                    price_data_list.append(df_otc)
+                    print(f"[Info] 從上櫃市場讀取 {ticker}: {len(df_otc)} 筆")
+                else:
+                    print(f"[Warning] {ticker} 在上市和上櫃市場都找不到資料")
         
         if not price_data_list:
             print("[Error] 無法讀取股價資料，請先執行選項 2 蒐集資料")
@@ -477,7 +492,7 @@ def run_backtest():
             try:
                 if strategy_name == 'BuyAndHold':
                     strategy = strategy_class(stock_ticker)
-                elif strategy_name in ['Cash', 'M1BFilterCash', 'DynamicPositionCash']:
+                elif strategy_name in ['Cash', 'M1BFilterCash', 'DynamicPositionCash', 'MultiplierAllocationCash']:
                     strategy = strategy_class(stock_ticker)
                 elif strategy_name == 'TSMCProportionalAllocation':
                     strategy = strategy_class(stock_ticker, hedge_ticker)

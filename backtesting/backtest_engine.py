@@ -37,6 +37,8 @@ class BacktestEngine:
         self.cycle_data = None
         # M1B 資料
         self.m1b_data = None
+        # 缺失價格警告追蹤
+        self._missing_price_warnings = []
     
     def calculate_commission(self, value):
         """計算手續費"""
@@ -135,12 +137,36 @@ class BacktestEngine:
             'm1b_yoy_momentum': None,  # M1B 動能
             'm1b_mom': None,  # M1B 月對月變化率
             'm1b_vs_3m_avg': None,  # M1B vs 前三個月平均
-            'score_momentum': None  # 景氣分數動能
+            'score_momentum': None,  # 景氣分數動能
+            'is_first_trading_day': False,  # 是否為當月第一個交易日
+            'is_last_trading_day': False,  # 是否為當月最後一個交易日
+            'should_buy_on_first_day': False,  # 是否應在當月第一個交易日買進
+            'should_sell_on_last_day': False  # 是否應在當月最後一個交易日賣出
         }
         
         # 用於追蹤上一個月的景氣分數（用於計算動能）
         prev_month_score = None
         prev_month_date = None
+        
+        # 預先計算每個月的第一個和最後一個交易日
+        month_first_trading_day = {}  # {(year, month): first_trading_day}
+        month_last_trading_day = {}   # {(year, month): last_trading_day}
+        
+        current_month_key = None
+        for date in trading_days:
+            month_key = (date.year, date.month)
+            if month_key not in month_first_trading_day:
+                month_first_trading_day[month_key] = date
+            month_last_trading_day[month_key] = date
+        
+        # 追蹤月份變化和交易標記
+        prev_prev_val_shifted = None  # 上上個月的分數（用於判斷「變成」）
+        prev_val_shifted = None  # 上個月的分數（用於決定交易）
+        prev_date = None  # 上一個交易日
+        current_month_key = None
+        prev_month_key = None
+        need_buy_this_month = False  # 標記本月是否需要買進
+        need_sell_this_month = False  # 標記本月是否需要賣出
         
         # 每日迭代
         for i, date in enumerate(trading_days):
@@ -172,31 +198,62 @@ class BacktestEngine:
             # 注意：score 是當月原始分數，val_shifted 是前一個月的分數（用於交易決策）
             strategy_state['score'] = val_shifted  # 使用 val_shifted 作為交易決策依據
             
-            # 計算分數動能（比較不同月份的原始分數）
-            # 由於景氣燈號是月資料，需要追蹤月份變化
-            current_month = date.month
-            current_year = date.year
+            # 追蹤月份變化
+            current_month_key = (date.year, date.month)
             
-            if prev_month_date is not None:
-                prev_month = prev_month_date.month
-                prev_year = prev_month_date.year
-                
-                # 檢查是否跨月（考慮跨年情況）
-                if (current_year > prev_year) or (current_year == prev_year and current_month != prev_month):
-                    # 跨月了，可以計算動能
-                    if prev_month_score is not None and score is not None:
-                        strategy_state['score_momentum'] = score - prev_month_score
-                    prev_month_score = score
-                    prev_month_date = date
+            # 檢查是否跨月（考慮跨年情況）
+            if prev_month_key is not None and current_month_key != prev_month_key:
+                # 跨月了，檢查上一個月的燈號狀態（使用上一個交易日的 val_shifted）
+                # 當月份變化時，prev_val_shifted 是上上個月的分數，val_shifted 是上個月的分數
+                if prev_val_shifted is not None and val_shifted is not None:
+                    prev_prev_was_blue = prev_val_shifted <= 16
+                    prev_prev_was_red = prev_val_shifted >= 38
+                    prev_was_blue = val_shifted <= 16
+                    prev_was_red = val_shifted >= 38
+                    
+                    # 如果上個月是藍燈，且不是從藍燈變來的（變成藍燈），則需要買進
+                    if prev_was_blue and not prev_prev_was_blue:
+                        need_buy_this_month = True
+                    else:
+                        need_buy_this_month = False
+                    
+                    # 如果上個月是紅燈，且不是從紅燈變來的（變成紅燈），則需要賣出
+                    if prev_was_red and not prev_prev_was_red:
+                        need_sell_this_month = True
+                    else:
+                        need_sell_this_month = False
                 else:
-                    # 同一個月內，保持上一個月的動能值（或 None）
-                    # score_momentum 保持不變
-                    pass
-            else:
-                # 第一次，記錄當月分數
+                    need_buy_this_month = False
+                    need_sell_this_month = False
+                
+                # 更新月份分數追蹤
+                prev_prev_val_shifted = prev_val_shifted
+                prev_val_shifted = val_shifted
+                prev_month_key = current_month_key
+                
+                # 計算分數動能
+                if prev_month_score is not None and score is not None:
+                    strategy_state['score_momentum'] = score - prev_month_score
+                prev_month_score = score
+                prev_month_date = date
+            elif prev_month_key is None:
+                # 第一次，初始化
+                prev_val_shifted = val_shifted
+                prev_prev_val_shifted = None
+                prev_month_key = current_month_key
                 prev_month_score = score
                 prev_month_date = date
                 strategy_state['score_momentum'] = None
+                need_buy_this_month = False
+                need_sell_this_month = False
+            else:
+                # 同一個月內，更新 val_shifted 追蹤（同一個月內的 val_shifted 應該相同）
+                prev_val_shifted = val_shifted if val_shifted is not None else prev_val_shifted
+                # score_momentum 保持不變
+                pass
+            
+            # 更新上一個交易日
+            prev_date = date
             
             # 取得 M1B 資料（如果可用）
             if self.m1b_data is not None:
@@ -231,6 +288,16 @@ class BacktestEngine:
             for _, row in date_price_data.iterrows():
                 price_dict[row['ticker']] = row['close']
             
+            # 檢查是否為特定交易日期（第一個或最後一個交易日）
+            is_first_trading_day = month_first_trading_day.get(current_month_key) == date
+            is_last_trading_day = month_last_trading_day.get(current_month_key) == date
+            
+            # 在 strategy_state 中設置交易時機標記
+            strategy_state['is_first_trading_day'] = is_first_trading_day
+            strategy_state['is_last_trading_day'] = is_last_trading_day
+            strategy_state['should_buy_on_first_day'] = need_buy_this_month if is_first_trading_day else False
+            strategy_state['should_sell_on_last_day'] = need_sell_this_month if is_last_trading_day else False
+            
             # 執行策略
             # 為等比例配置策略提供持倉資訊
             portfolio_value_before = self._calculate_portfolio_value(date, price_dict)
@@ -256,6 +323,19 @@ class BacktestEngine:
         # 計算績效指標
         metrics = self._calculate_metrics()
         
+        # 輸出缺失價格警告摘要
+        if hasattr(self, '_missing_price_warnings') and self._missing_price_warnings:
+            missing_by_ticker = {}
+            for warning in self._missing_price_warnings:
+                ticker = warning['ticker']
+                if ticker not in missing_by_ticker:
+                    missing_by_ticker[ticker] = []
+                missing_by_ticker[ticker].append(warning)
+            
+            print(f"\n[Warning] 共有 {len(self._missing_price_warnings)} 筆訂單因缺少價格資料而被跳過：")
+            for ticker, warnings in missing_by_ticker.items():
+                print(f"  {ticker}: {len(warnings)} 筆（首次發生日期：{warnings[0]['date'].strftime('%Y-%m-%d')}）")
+        
         return {
             'dates': self.dates,
             'portfolio_value': self.portfolio_value,
@@ -279,7 +359,14 @@ class BacktestEngine:
         ticker = order.get('ticker')
         
         if ticker not in price_dict:
-            print(f"[Warning] {date} {ticker} 無價格資料，跳過訂單")
+            print(f"[Warning] {date.strftime('%Y-%m-%d')} {ticker} 無價格資料，跳過訂單")
+            # 記錄到交易日誌以便後續分析
+            if hasattr(self, '_missing_price_warnings'):
+                self._missing_price_warnings.append({
+                    'date': date,
+                    'ticker': ticker,
+                    'action': action
+                })
             return
         
         price = price_dict[ticker]

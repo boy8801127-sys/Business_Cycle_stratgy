@@ -224,17 +224,20 @@ class ProportionalAllocationStrategy(CycleStrategy):
         if score is None:
             return None
         
-        # 根據一般景氣燈號分數區間
-        if score <= 16:
+        # 根據官方景氣燈號分數區間（國發會標準）
+        # 藍燈：9-16分、黃藍燈：17-22分、綠燈：23-31分、黃紅燈：32-37分、紅燈：38-45分
+        if 9 <= score <= 16:
             return 'blue'  # 藍燈
-        elif score <= 22:
+        elif 17 <= score <= 22:
             return 'yellow_blue'  # 黃藍燈
-        elif score <= 31:
+        elif 23 <= score <= 31:
             return 'green'  # 綠燈
-        elif score <= 38:
+        elif 32 <= score <= 37:
             return 'yellow_red'  # 黃紅燈
-        else:
+        elif score >= 38:
             return 'red'  # 紅燈
+        else:
+            return None  # 分數 < 9，可能是資料缺失
     
     def generate_orders(self, state, date, price_dict, positions=None, portfolio_value=None):
         """
@@ -562,12 +565,12 @@ class DynamicPositionStrategy(CycleStrategy):
         # 計算目標倉位
         target_position = 0.0
         
-        # 藍燈（Score ≤ 16）：100% 倉位
-        if score <= 16:
+        # 藍燈（9-16分）：100% 倉位
+        if 9 <= score <= 16:
             target_position = 1.0
         
-        # 綠燈（17 ≤ Score ≤ 31）
-        elif 17 <= score <= 31:
+        # 黃藍燈（17-22分）：根據動能調整
+        elif 17 <= score <= 22:
             if score_momentum is not None and score_momentum < -2:
                 # 分數驟降：50% 倉位
                 target_position = 0.5
@@ -575,8 +578,26 @@ class DynamicPositionStrategy(CycleStrategy):
                 # 正常：100% 倉位
                 target_position = 1.0
         
-        # 紅燈（Score ≥ 32）
-        elif score >= 32:
+        # 綠燈（23-31分）：根據動能調整
+        elif 23 <= score <= 31:
+            if score_momentum is not None and score_momentum < -2:
+                # 分數驟降：50% 倉位
+                target_position = 0.5
+            else:
+                # 正常：100% 倉位
+                target_position = 1.0
+        
+        # 黃紅燈（32-37分）：根據 M1B 動能調整
+        elif 32 <= score <= 37:
+            if m1b_momentum is not None and m1b_momentum < 0:
+                # 價量背離：0% 倉位（清倉）
+                target_position = 0.0
+            else:
+                # 正常：50% 倉位
+                target_position = 0.5
+        
+        # 紅燈（38-45分）：根據 M1B 動能調整
+        elif score >= 38:
             if m1b_momentum is not None and m1b_momentum < 0:
                 # 價量背離：0% 倉位（清倉）
                 target_position = 0.0
@@ -676,19 +697,33 @@ class DynamicPositionProportionalStrategy(DynamicPositionStrategy, ProportionalA
         # 計算目標股票倉位
         target_stock_pct = 0.0
         
-        # 藍燈（Score ≤ 16）：100% 倉位
-        if score <= 16:
+        # 藍燈（9-16分）：100% 倉位
+        if 9 <= score <= 16:
             target_stock_pct = 1.0
         
-        # 綠燈（17 ≤ Score ≤ 31）
-        elif 17 <= score <= 31:
+        # 黃藍燈（17-22分）：根據動能調整
+        elif 17 <= score <= 22:
             if score_momentum is not None and score_momentum < -2:
                 target_stock_pct = 0.5
             else:
                 target_stock_pct = 1.0
         
-        # 紅燈（Score ≥ 32）
-        elif score >= 32:
+        # 綠燈（23-31分）：根據動能調整
+        elif 23 <= score <= 31:
+            if score_momentum is not None and score_momentum < -2:
+                target_stock_pct = 0.5
+            else:
+                target_stock_pct = 1.0
+        
+        # 黃紅燈（32-37分）：根據 M1B 動能調整
+        elif 32 <= score <= 37:
+            if m1b_momentum is not None and m1b_momentum < 0:
+                target_stock_pct = 0.0
+            else:
+                target_stock_pct = 0.5
+        
+        # 紅燈（38-45分）：根據 M1B 動能調整
+        elif score >= 38:
             if m1b_momentum is not None and m1b_momentum < 0:
                 target_stock_pct = 0.0
             else:
@@ -759,4 +794,194 @@ class DynamicPositionProportionalStrategy(DynamicPositionStrategy, ProportionalA
                     })
         
         return orders
+
+
+class MultiplierAllocationStrategy(CycleStrategy):
+    """倍數放大配置策略（根據燈號等級遞減倉位）"""
+    
+    def __init__(self, stock_ticker='006208', hedge_ticker='00865B'):
+        super().__init__(stock_ticker, hedge_ticker)
+        
+        # 倍數遞減配置規則
+        self.allocation_rules = {
+            'blue': {'stock_pct': 1.0, 'bond_pct': 0.0},        # 藍燈（9-16）：100% 股票, 0% 債券
+            'yellow_blue': {'stock_pct': 0.75, 'bond_pct': 0.25}, # 黃藍燈（17-22）：75% 股票, 25% 債券
+            'green': {'stock_pct': 0.5, 'bond_pct': 0.5},       # 綠燈（23-31）：50% 股票, 50% 債券
+            'yellow_red': {'stock_pct': 0.25, 'bond_pct': 0.75}, # 黃紅燈（32-37）：25% 股票, 75% 債券
+            'red': {'stock_pct': 0.0, 'bond_pct': 1.0}         # 紅燈（38-45）：0% 股票, 100% 債券
+        }
+    
+    def _get_signal_level(self, score):
+        """根據景氣燈號分數判斷燈號等級（使用官方標準）"""
+        if score is None:
+            return None
+        
+        if 9 <= score <= 16:
+            return 'blue'  # 藍燈
+        elif 17 <= score <= 22:
+            return 'yellow_blue'  # 黃藍燈
+        elif 23 <= score <= 31:
+            return 'green'  # 綠燈
+        elif 32 <= score <= 37:
+            return 'yellow_red'  # 黃紅燈
+        elif score >= 38:
+            return 'red'  # 紅燈
+        else:
+            return None  # 分數 < 9，可能是資料缺失
+    
+    def generate_orders(self, state, date, price_dict, positions=None, portfolio_value=None):
+        """根據燈號等級產生倍數遞減配置訂單"""
+        orders = []
+        score = state.get('score')
+        
+        if score is None:
+            return orders
+        
+        # 取得當前的燈號等級
+        signal_level = self._get_signal_level(score)
+        
+        if signal_level is None:
+            return orders
+        
+        # 取得目標配置比例
+        target_allocation = self.allocation_rules.get(signal_level)
+        
+        if target_allocation is None:
+            return orders
+        
+        target_stock_pct = target_allocation['stock_pct']
+        target_bond_pct = target_allocation['bond_pct']
+        
+        # 如果沒有持倉資訊，首次配置
+        if positions is None or portfolio_value is None or portfolio_value <= 0:
+            if target_stock_pct > 0:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.stock_ticker,
+                    'percent': target_stock_pct
+                })
+            if target_bond_pct > 0 and self.hedge_ticker:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.hedge_ticker,
+                    'percent': target_bond_pct
+                })
+            return orders
+        
+        # 計算當前持倉價值和比例
+        current_stock_value = positions.get(self.stock_ticker, 0) * price_dict.get(self.stock_ticker, 0)
+        current_bond_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0) if self.hedge_ticker else 0
+        
+        current_stock_pct = current_stock_value / portfolio_value if portfolio_value > 0 else 0
+        current_bond_pct = current_bond_value / portfolio_value if portfolio_value > 0 else 0
+        
+        # 計算需要調整的比例
+        stock_diff = target_stock_pct - current_stock_pct
+        bond_diff = target_bond_pct - current_bond_pct
+        
+        threshold = 0.05  # 5% 的容許誤差
+        
+        # 產生調整訂單
+        if abs(stock_diff) > threshold:
+            if stock_diff > 0:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.stock_ticker,
+                    'percent': stock_diff
+                })
+            else:
+                orders.append({
+                    'action': 'sell',
+                    'ticker': self.stock_ticker,
+                    'percent': abs(stock_diff)
+                })
+        
+        if self.hedge_ticker and abs(bond_diff) > threshold:
+            if bond_diff > 0:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.hedge_ticker,
+                    'percent': bond_diff
+                })
+            else:
+                orders.append({
+                    'action': 'sell',
+                    'ticker': self.hedge_ticker,
+                    'percent': abs(bond_diff)
+                })
+        
+        return orders
+
+
+class MultiplierAllocationCashStrategy(MultiplierAllocationStrategy):
+    """倍數放大 + 現金避險策略（紅燈時 100% 現金）"""
+    
+    def __init__(self, stock_ticker='006208'):
+        super().__init__(stock_ticker, None)
+    
+    def generate_orders(self, state, date, price_dict, positions=None, portfolio_value=None):
+        """倍數放大 + 現金避險：紅燈時全部賣出，持有現金"""
+        orders = []
+        score = state.get('score')
+        
+        if score is None:
+            return orders
+        
+        # 取得當前的燈號等級
+        signal_level = self._get_signal_level(score)
+        
+        if signal_level is None:
+            return orders
+        
+        # 取得目標配置比例
+        target_allocation = self.allocation_rules.get(signal_level)
+        
+        if target_allocation is None:
+            return orders
+        
+        target_stock_pct = target_allocation['stock_pct']
+        # 現金策略：不需要買進避險資產，紅燈時全部賣出即可
+        
+        # 如果沒有持倉資訊，首次配置
+        if positions is None or portfolio_value is None or portfolio_value <= 0:
+            if target_stock_pct > 0:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.stock_ticker,
+                    'percent': target_stock_pct
+                })
+            return orders
+        
+        # 計算當前持倉價值和比例
+        current_stock_value = positions.get(self.stock_ticker, 0) * price_dict.get(self.stock_ticker, 0)
+        current_stock_pct = current_stock_value / portfolio_value if portfolio_value > 0 else 0
+        
+        # 計算需要調整的比例
+        stock_diff = target_stock_pct - current_stock_pct
+        
+        threshold = 0.05  # 5% 的容許誤差
+        
+        # 產生調整訂單
+        if abs(stock_diff) > threshold:
+            if stock_diff > 0:
+                orders.append({
+                    'action': 'buy',
+                    'ticker': self.stock_ticker,
+                    'percent': stock_diff
+                })
+            else:
+                orders.append({
+                    'action': 'sell',
+                    'ticker': self.stock_ticker,
+                    'percent': abs(stock_diff)
+                })
+        
+        return orders
+
+
+class MultiplierAllocationBondStrategy(MultiplierAllocationStrategy):
+    """倍數放大 + 短債避險策略（紅燈時 100% 債券）"""
+    
+    def __init__(self, stock_ticker='006208', hedge_ticker='00865B'):
+        super().__init__(stock_ticker, hedge_ticker)
 
