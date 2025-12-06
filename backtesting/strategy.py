@@ -625,7 +625,8 @@ class DynamicPositionStrategy(CycleStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': target_position
+                    'percent': target_position,
+                    'target_position_pct': target_position  # 新增：目標持倉比例
                 })
                 state['state'] = True
         else:
@@ -643,7 +644,8 @@ class DynamicPositionStrategy(CycleStrategy):
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': diff
+                        'percent': diff,
+                        'target_position_pct': target_position  # 新增：目標持倉比例
                     })
                     state['state'] = True
                 else:
@@ -651,7 +653,8 @@ class DynamicPositionStrategy(CycleStrategy):
                     orders.append({
                         'action': 'sell',
                         'ticker': self.stock_ticker,
-                        'percent': abs(diff)
+                        'percent': abs(diff),
+                        'target_position_pct': target_position  # 新增：目標持倉比例
                     })
                     if target_position == 0:
                         state['state'] = False
@@ -871,13 +874,15 @@ class MultiplierAllocationStrategy(CycleStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': target_stock_pct
+                    'percent': target_stock_pct,
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
             if target_bond_pct > 0 and self.hedge_ticker:
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
-                    'percent': target_bond_pct
+                    'percent': target_bond_pct,
+                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
                 })
             return orders
         
@@ -900,13 +905,15 @@ class MultiplierAllocationStrategy(CycleStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': stock_diff
+                    'percent': stock_diff,
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
             else:
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
-                    'percent': abs(stock_diff)
+                    'percent': abs(stock_diff),
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
         
         if self.hedge_ticker and abs(bond_diff) > threshold:
@@ -914,13 +921,15 @@ class MultiplierAllocationStrategy(CycleStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
-                    'percent': bond_diff
+                    'percent': bond_diff,
+                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
                 })
             else:
                 orders.append({
                     'action': 'sell',
                     'ticker': self.hedge_ticker,
-                    'percent': abs(bond_diff)
+                    'percent': abs(bond_diff),
+                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
                 })
         
         return orders
@@ -961,7 +970,8 @@ class MultiplierAllocationCashStrategy(MultiplierAllocationStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': target_stock_pct
+                    'percent': target_stock_pct,
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
             return orders
         
@@ -980,13 +990,15 @@ class MultiplierAllocationCashStrategy(MultiplierAllocationStrategy):
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': stock_diff
+                    'percent': stock_diff,
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
             else:
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
-                    'percent': abs(stock_diff)
+                    'percent': abs(stock_diff),
+                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
                 })
         
         return orders
