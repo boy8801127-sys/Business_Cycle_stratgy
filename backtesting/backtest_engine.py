@@ -405,12 +405,22 @@ class BacktestEngine:
                 if ticker in price_dict and is_in_first_five_days:
                     split_order = buy_split_orders[ticker]
                     if split_order['days_remaining'] > 0:
-                        # 計算今天要執行的比例（總比例的1/總天數）
+                        # 計算今天要執行的比例
                         total_days = len(month_first_five_days.get(current_month_key, []))
                         if total_days > 0:
-                            today_percent = split_order['total_percent'] / total_days
+                            # 計算今天要執行的比例
+                            if split_order['days_remaining'] == 1:
+                                # 最後一天：執行剩餘的所有比例
+                                today_percent = split_order['total_percent'] - split_order['executed_percent']
+                            else:
+                                # 其他天：平均分配
+                                today_percent = split_order['total_percent'] / total_days
                         else:
-                            today_percent = split_order['total_percent']
+                            # 如果沒有計算出交易日，使用預設5天
+                            if split_order['days_remaining'] == 1:
+                                today_percent = split_order['total_percent'] - split_order['executed_percent']
+                            else:
+                                today_percent = split_order['total_percent'] / 5
                         
                         orders_to_execute.append({
                             'action': 'buy',
@@ -757,31 +767,35 @@ class BacktestEngine:
             
             # 記錄交易（包含濾網參數和持倉比例）
             trade_record = {
-                'date': date,
-                'action': 'buy',
-                'ticker': ticker,
-                'shares': shares,
-                'price': price,
-                'cost': cost,
-                'commission': commission,
-                'total_cost': total_cost
+                '日期': date,
+                '動作': '買進',
+                '標的代號': ticker,
+                '股數': shares,  # 股數保持整數
+                '價格': round(price, 2),
+                '成本': round(cost, 2),
+                '手續費': round(commission, 2),
+                '總成本': round(total_cost, 2)
             }
             
             # 添加濾網參數（如果有）
             if hasattr(self, '_current_strategy_state'):
                 state = self._current_strategy_state
                 if state.get('m1b_yoy_month') is not None:
-                    trade_record['m1b_yoy_month'] = state.get('m1b_yoy_month')
+                    trade_record['M1B年增率'] = round(state.get('m1b_yoy_month'), 2)
                 if state.get('m1b_yoy_momentum') is not None:
-                    trade_record['m1b_yoy_momentum'] = state.get('m1b_yoy_momentum')
+                    trade_record['M1B年增率動能'] = round(state.get('m1b_yoy_momentum'), 2)
                 if state.get('m1b_mom') is not None:
-                    trade_record['m1b_mom'] = state.get('m1b_mom')
+                    trade_record['M1B動能'] = round(state.get('m1b_mom'), 2)
                 if state.get('m1b_vs_3m_avg') is not None:
-                    trade_record['m1b_vs_3m_avg'] = state.get('m1b_vs_3m_avg')
+                    trade_record['M1Bvs3月平均'] = round(state.get('m1b_vs_3m_avg'), 2)
             
             # 添加持倉比例（如果有）
             if order.get('target_position_pct') is not None:
-                trade_record['target_position_pct'] = order.get('target_position_pct')
+                trade_record['目標持倉比例'] = round(order.get('target_position_pct'), 2)
+            if order.get('target_stock_pct') is not None:
+                trade_record['目標股票比例'] = round(order.get('target_stock_pct'), 2)
+            if order.get('target_bond_pct') is not None:
+                trade_record['目標債券比例'] = round(order.get('target_bond_pct'), 2)
             
             self.trades.append(trade_record)
         
@@ -817,32 +831,36 @@ class BacktestEngine:
             
             # 記錄交易（包含濾網參數和持倉比例）
             trade_record = {
-                'date': date,
-                'action': 'sell',
-                'ticker': ticker,
-                'shares': shares,
-                'price': price,
-                'proceeds': proceeds,
-                'commission': commission,
-                'tax': tax,
-                'net_proceeds': net_proceeds
+                '日期': date,
+                '動作': '賣出',
+                '標的代號': ticker,
+                '股數': shares,  # 股數保持整數
+                '價格': round(price, 2),
+                '收入': round(proceeds, 2),
+                '手續費': round(commission, 2),
+                '證交稅': round(tax, 2),
+                '淨收入': round(net_proceeds, 2)
             }
             
             # 添加濾網參數（如果有）
             if hasattr(self, '_current_strategy_state'):
                 state = self._current_strategy_state
                 if state.get('m1b_yoy_month') is not None:
-                    trade_record['m1b_yoy_month'] = state.get('m1b_yoy_month')
+                    trade_record['M1B年增率'] = round(state.get('m1b_yoy_month'), 2)
                 if state.get('m1b_yoy_momentum') is not None:
-                    trade_record['m1b_yoy_momentum'] = state.get('m1b_yoy_momentum')
+                    trade_record['M1B年增率動能'] = round(state.get('m1b_yoy_momentum'), 2)
                 if state.get('m1b_mom') is not None:
-                    trade_record['m1b_mom'] = state.get('m1b_mom')
+                    trade_record['M1B動能'] = round(state.get('m1b_mom'), 2)
                 if state.get('m1b_vs_3m_avg') is not None:
-                    trade_record['m1b_vs_3m_avg'] = state.get('m1b_vs_3m_avg')
+                    trade_record['M1Bvs3月平均'] = round(state.get('m1b_vs_3m_avg'), 2)
             
             # 添加持倉比例（如果有）
             if order.get('target_position_pct') is not None:
-                trade_record['target_position_pct'] = order.get('target_position_pct')
+                trade_record['目標持倉比例'] = round(order.get('target_position_pct'), 2)
+            if order.get('target_stock_pct') is not None:
+                trade_record['目標股票比例'] = round(order.get('target_stock_pct'), 2)
+            if order.get('target_bond_pct') is not None:
+                trade_record['目標債券比例'] = round(order.get('target_bond_pct'), 2)
             
             self.trades.append(trade_record)
             
@@ -1042,10 +1060,9 @@ class BacktestEngine:
         if not self.trades:
             return 0.0
         
-        # 追蹤每個標的的買進和賣出
+        # 追蹤每個標的的買進和賣出配對
         positions = {}  # {ticker: [(buy_date, buy_price, shares), ...]}
-        profitable_trades = 0
-        total_sell_trades = 0
+        trade_pairs = []  # [(buy_price, sell_price, shares), ...] 完整的買賣配對
         
         for trade in self.trades:
             ticker = trade['ticker']
@@ -1060,26 +1077,30 @@ class BacktestEngine:
                 positions[ticker].append((date, price, shares))
             elif action == 'sell':
                 if ticker in positions and positions[ticker]:
-                    total_sell_trades += 1
                     # 使用 FIFO 原則計算盈虧
                     remaining_shares = shares
                     while remaining_shares > 0 and positions[ticker]:
                         buy_date, buy_price, buy_shares = positions[ticker][0]
                         if buy_shares <= remaining_shares:
                             # 完全賣出這筆持倉
-                            if price > buy_price:
-                                profitable_trades += 1
+                            trade_pairs.append((buy_price, price, buy_shares))
                             remaining_shares -= buy_shares
                             positions[ticker].pop(0)
                         else:
-                            # 部分賣出
-                            if price > buy_price:
-                                profitable_trades += 1
+                            # 部分賣出：將這筆買進分成兩部分
+                            # 賣出的部分作為一個完整的配對
+                            trade_pairs.append((buy_price, price, remaining_shares))
+                            # 剩餘的部分保留在 positions 中
                             positions[ticker][0] = (buy_date, buy_price, buy_shares - remaining_shares)
                             remaining_shares = 0
         
-        if total_sell_trades > 0:
-            return (profitable_trades / total_sell_trades) * 100  # 轉換為百分比
+        # 計算勝率：每筆完整的買賣配對計算一次
+        if trade_pairs:
+            profitable_pairs = sum(1 for buy_price, sell_price, _ in trade_pairs if sell_price > buy_price)
+            total_pairs = len(trade_pairs)
+            if total_pairs > 0:
+                return (profitable_pairs / total_pairs) * 100  # 轉換為百分比
+        
         return 0.0
     
     def generate_position_summary(self):

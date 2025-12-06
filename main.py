@@ -761,8 +761,23 @@ def export_results_to_csv(all_results, start_date, end_date):
             trades_filename = os.path.join(output_dir, f'position_changes_{result["strategy_name"]}_{timestamp}.csv')
             trades_df = pd.DataFrame(result['trades'])
             # 將日期轉換為字串格式以便 CSV 輸出
-            if 'date' in trades_df.columns:
-                trades_df['date'] = trades_df['date'].astype(str)
+            if '日期' in trades_df.columns:
+                trades_df['日期'] = trades_df['日期'].astype(str)
+            
+            # 格式化數值欄位到小數點第二位（股數保持整數）
+            numeric_columns = ['股數', '價格', '成本', '手續費', '總成本', 
+                             '收入', '證交稅', '淨收入', 'M1B年增率', 
+                             'M1B年增率動能', 'M1B動能', 'M1Bvs3月平均', 
+                             '目標持倉比例', '目標股票比例', '目標債券比例']
+            for col in numeric_columns:
+                if col in trades_df.columns:
+                    if col == '股數':
+                        # 股數保持整數
+                        trades_df[col] = trades_df[col].astype(int)
+                    else:
+                        # 其他數值四捨五入到小數點第二位
+                        trades_df[col] = trades_df[col].round(2)
+            
             trades_df.to_csv(trades_filename, index=False, encoding='utf-8-sig')
             print(f"[Info] {result['strategy_name']} 持倉變動詳細列表已輸出至: {trades_filename}")
 

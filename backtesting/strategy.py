@@ -176,21 +176,55 @@ class FiftyFiftyStrategy(CycleStrategy):
         
         # SCORE >= 38（紅燈）：保留 50% 股票，買進 50% 避險資產
         elif score >= 38 and state.get('state', False):
-            # 賣出 50% 股票
-            orders.append({
-                'action': 'sell',
-                'ticker': self.stock_ticker,
-                'percent': 0.5
-            })
-            
-            # 買進 50% 避險資產
-            if self.hedge_ticker and not state.get('hedge_state', False):
+            # 計算當前持倉比例
+            if positions and portfolio_value:
+                current_stock_value = positions.get(self.stock_ticker, 0) * price_dict.get(self.stock_ticker, 0)
+                current_stock_pct = current_stock_value / portfolio_value if portfolio_value > 0 else 0
+                
+                # 如果股票比例 > 55%，需要減碼至50%
+                if current_stock_pct > 0.55:
+                    sell_pct = (current_stock_pct - 0.5) / current_stock_pct
+                    orders.append({
+                        'action': 'sell',
+                        'ticker': self.stock_ticker,
+                        'percent': sell_pct,
+                        'trigger_hedge_buy': True,
+                        'hedge_ticker': self.hedge_ticker
+                    })
+                    
+                    # 同步買進避險資產
+                    if self.hedge_ticker:
+                        current_hedge_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0)
+                        current_hedge_pct = current_hedge_value / portfolio_value if portfolio_value > 0 else 0
+                        target_hedge_pct = 0.5
+                        hedge_diff = target_hedge_pct - current_hedge_pct
+                        
+                        if hedge_diff > 0.05:  # 5% 的容許誤差
+                            orders.append({
+                                'action': 'buy',
+                                'ticker': self.hedge_ticker,
+                                'percent': hedge_diff,
+                                'is_hedge_buy': True
+                            })
+                            state['hedge_state'] = True
+            else:
+                # 如果沒有持倉資訊，賣出50%股票並買進50%避險資產
                 orders.append({
-                    'action': 'buy',
-                    'ticker': self.hedge_ticker,
-                    'percent': 0.5
+                    'action': 'sell',
+                    'ticker': self.stock_ticker,
+                    'percent': 0.5,
+                    'trigger_hedge_buy': True,
+                    'hedge_ticker': self.hedge_ticker
                 })
-                state['hedge_state'] = True
+                
+                if self.hedge_ticker:
+                    orders.append({
+                        'action': 'buy',
+                        'ticker': self.hedge_ticker,
+                        'percent': 0.5,
+                        'is_hedge_buy': True
+                    })
+                    state['hedge_state'] = True
         
         # 16 < SCORE < 38：首次進入時買進股票
         elif 16 < score < 38:
@@ -483,6 +517,36 @@ class M1BFilterStrategy(CycleStrategy):
                             'ticker': self.stock_ticker,
                             'percent': 0.5
                         })
+                    
+                    # 處理避險資產（如果有）：減碼時同步買進避險資產，補足到100%（50%股票 + 50%避險資產）
+                    if self.hedge_ticker:
+                        # 計算當前避險資產持倉比例
+                        if positions and portfolio_value:
+                            current_hedge_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0)
+                            current_hedge_pct = current_hedge_value / portfolio_value if portfolio_value > 0 else 0
+                            target_hedge_pct = 0.5  # 目標是50%避險資產
+                            
+                            # 計算需要調整的避險資產比例
+                            hedge_diff = target_hedge_pct - current_hedge_pct
+                            threshold = 0.05  # 5% 的容許誤差
+                            
+                            if abs(hedge_diff) > threshold and hedge_diff > 0:
+                                orders.append({
+                                    'action': 'buy',
+                                    'ticker': self.hedge_ticker,
+                                    'percent': hedge_diff,
+                                    'is_hedge_buy': True
+                                })
+                                state['hedge_state'] = True
+                        else:
+                            # 首次配置：買進50%避險資產
+                            orders.append({
+                                'action': 'buy',
+                                'ticker': self.hedge_ticker,
+                                'percent': 0.5,
+                                'is_hedge_buy': True
+                            })
+                            state['hedge_state'] = True
         
         # 16 < SCORE < 38：首次進入時買進股票
         elif 16 < score < 38:
@@ -671,8 +735,47 @@ class DynamicPositionStrategy(CycleStrategy):
                     })
                     state['hedge_state'] = False
             elif target_position < 1.0:
-                # 減碼時可以買進避險資產（可選）
-                pass
+                # 減碼時：用賣出股票產生的現金買進避險資產，補足到100%
+                # 計算需要買進的避險資產比例
+                hedge_target_pct = 1.0 - target_position
+                
+                # 計算當前避險資產持倉比例
+                if positions is not None and portfolio_value is not None and portfolio_value > 0:
+                    current_hedge_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0)
+                    current_hedge_pct = current_hedge_value / portfolio_value if portfolio_value > 0 else 0
+                    
+                    # 計算需要調整的避險資產比例
+                    hedge_diff = hedge_target_pct - current_hedge_pct
+                    threshold = 0.05  # 5% 的容許誤差
+                    
+                    if abs(hedge_diff) > threshold:
+                        if hedge_diff > 0:
+                            # 需要買進避險資產
+                            orders.append({
+                                'action': 'buy',
+                                'ticker': self.hedge_ticker,
+                                'percent': hedge_diff,
+                                'target_position_pct': hedge_target_pct
+                            })
+                            state['hedge_state'] = True
+                        else:
+                            # 需要賣出避險資產（如果持倉過多）
+                            orders.append({
+                                'action': 'sell',
+                                'ticker': self.hedge_ticker,
+                                'percent': abs(hedge_diff),
+                                'target_position_pct': hedge_target_pct
+                            })
+                else:
+                    # 首次配置：如果目標倉位 < 100%，買進避險資產
+                    if hedge_target_pct > 0:
+                        orders.append({
+                            'action': 'buy',
+                            'ticker': self.hedge_ticker,
+                            'percent': hedge_target_pct,
+                            'target_position_pct': hedge_target_pct
+                        })
+                        state['hedge_state'] = True
         
         return orders
 

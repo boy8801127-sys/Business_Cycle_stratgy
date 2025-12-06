@@ -185,3 +185,6 @@ cython_debug/
 
 # 景氣週期資料目錄（包含景氣指標與燈號等原始資料 CSV）
 business_cycle/
+
+# 策略說明文件（最珍貴的文件，不上傳到 GitHub）
+docs/STRATEGY_EXPLANATION.md
