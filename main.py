@@ -538,12 +538,18 @@ def run_backtest():
                 'position_summary': position_summary,
                 'trades': results['trades'],
                 'final_value': results.get('final_value', capital),
-                'initial_capital': capital
+                'initial_capital': capital,
+                'final_positions': results.get('final_positions', {}),  # 新增
+                'final_cash': results.get('final_cash', 0)  # 新增
             })
         
         # 輸出結果到 CSV
         print("\n[步驟 3] 產生結果表格...")
         export_results_to_csv(all_results, start_date, end_date)
+        
+        # 診斷LongTermBond策略問題
+        print("\n[步驟 4] 診斷LongTermBond策略...")
+        diagnose_strategy(all_results, 'LongTermBond')
         
         # 顯示摘要結果
         print("\n" + "="*60)
@@ -558,6 +564,135 @@ def run_backtest():
         print(f"[Error] 回測失敗: {e}")
         import traceback
         traceback.print_exc()
+
+
+def diagnose_strategy(all_results, strategy_name):
+    """診斷特定策略的問題"""
+    import os
+    
+    strategy_result = None
+    for result in all_results:
+        if result['strategy_name'] == strategy_name:
+            strategy_result = result
+            break
+    
+    if not strategy_result:
+        return
+    
+    print(f"\n{'='*60}")
+    print(f"診斷策略：{strategy_name}")
+    print(f"{'='*60}")
+    
+    # 基本資訊
+    print(f"初始資金：{strategy_result.get('initial_capital', 0):,.0f}")
+    print(f"最終資產總額：{strategy_result.get('final_value', 0):,.0f}")
+    print(f"累積報酬率：{strategy_result.get('total_return', 0):.2f}%")
+    print(f"最大回撤：{strategy_result.get('max_drawdown', 0):.2f}%")
+    print(f"總交易次數：{strategy_result.get('total_trades', 0)}")
+    
+    # 檢查交易記錄
+    trades = strategy_result.get('trades', [])
+    if trades:
+        print(f"\n交易記錄分析：")
+        
+        # 檢查異常價格
+        abnormal_trades = []
+        for trade in trades:
+            ticker = trade.get('ticker')
+            price = trade.get('price', 0)
+            action = trade.get('action')
+            
+            if price <= 0:
+                abnormal_trades.append({
+                    'date': trade.get('date'),
+                    'ticker': ticker,
+                    'action': action,
+                    'price': price,
+                    'reason': '價格為0或負數'
+                })
+        
+        if abnormal_trades:
+            print(f"  發現 {len(abnormal_trades)} 筆異常價格交易：")
+            for abnormal in abnormal_trades[:5]:  # 只顯示前5筆
+                date_str = str(abnormal['date']) if abnormal['date'] else 'N/A'
+                print(f"    {date_str} {abnormal['ticker']} {abnormal['action']} @ {abnormal['price']} - {abnormal['reason']}")
+            if len(abnormal_trades) > 5:
+                print(f"    ... 還有 {len(abnormal_trades) - 5} 筆異常交易")
+        
+        # 檢查價格波動
+        ticker_prices = {}
+        for trade in trades:
+            ticker = trade.get('ticker')
+            if ticker not in ticker_prices:
+                ticker_prices[ticker] = []
+            ticker_prices[ticker].append(trade.get('price', 0))
+        
+        print(f"\n  價格範圍分析：")
+        for ticker, prices in ticker_prices.items():
+            if prices:
+                valid_prices = [p for p in prices if p > 0]
+                if valid_prices:
+                    min_price = min(valid_prices)
+                    max_price = max(valid_prices)
+                    avg_price = sum(valid_prices) / len(valid_prices)
+                    max_change_pct = ((max_price - min_price) / avg_price * 100) if avg_price > 0 else 0
+                    print(f"    {ticker}: 最低={min_price:.2f}, 最高={max_price:.2f}, 平均={avg_price:.2f}, 波動範圍={max_change_pct:.2f}%")
+                    
+                    # 檢查是否有極端波動
+                    if max_change_pct > 50:
+                        print(f"      ⚠️  警告：{ticker} 價格波動超過50%")
+        
+        # 檢查是否有重複交易
+        trade_dates = {}
+        for trade in trades:
+            date = trade.get('date')
+            ticker = trade.get('ticker')
+            action = trade.get('action')
+            key = (date, ticker, action)
+            if key not in trade_dates:
+                trade_dates[key] = 0
+            trade_dates[key] += 1
+        
+        duplicate_trades = [(k, v) for k, v in trade_dates.items() if v > 1]
+        if duplicate_trades:
+            print(f"\n  發現 {len(duplicate_trades)} 筆重複交易：")
+            for (date, ticker, action), count in duplicate_trades[:5]:
+                date_str = str(date) if date else 'N/A'
+                print(f"    {date_str} {ticker} {action} 重複 {count} 次")
+    
+    # 比較與其他類似策略
+    if strategy_name == 'LongTermBond':
+        short_term_result = None
+        for result in all_results:
+            if result['strategy_name'] == 'ShortTermBond':
+                short_term_result = result
+                break
+        
+        if short_term_result:
+            print(f"\n與ShortTermBond策略比較：")
+            print(f"  LongTermBond累積報酬率：{strategy_result.get('total_return', 0):.2f}%")
+            print(f"  ShortTermBond累積報酬率：{short_term_result.get('total_return', 0):.2f}%")
+            diff = strategy_result.get('total_return', 0) - short_term_result.get('total_return', 0)
+            print(f"  差異：{diff:.2f}%")
+            if abs(diff) > 10:
+                print(f"  ⚠️  警告：兩個策略表現差異超過10%，可能避險資產選擇有問題")
+    
+    # 輸出詳細交易記錄到CSV（如果交易次數合理）
+    if len(trades) > 0 and len(trades) <= 500:
+        output_dir = '策略結果'
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        diagnostic_filename = os.path.join(output_dir, f'diagnostic_{strategy_name}_{timestamp}.csv')
+        
+        trades_df = pd.DataFrame(trades)
+        if 'date' in trades_df.columns:
+            trades_df['date'] = trades_df['date'].astype(str)
+        trades_df.to_csv(diagnostic_filename, index=False, encoding='utf-8-sig')
+        print(f"\n  詳細交易記錄已輸出至：{diagnostic_filename}")
+    
+    print(f"{'='*60}\n")
 
 
 def export_results_to_csv(all_results, start_date, end_date):
@@ -577,6 +712,18 @@ def export_results_to_csv(all_results, start_date, end_date):
     rows = []
     for result in all_results:
         position_summary = result['position_summary']
+        
+        # 處理最終持倉資訊
+        final_positions = result.get('final_positions', {})
+        positions_str = ""
+        if final_positions:
+            position_items = []
+            for ticker, pos_info in final_positions.items():
+                position_items.append(f"{ticker}: {pos_info['shares']:.0f}股 @ {pos_info['price']:.2f} = {pos_info['value']:,.0f}")
+            positions_str = "; ".join(position_items)
+        else:
+            positions_str = "無持倉"
+        
         row = {
             '策略名稱': result['strategy_name'],
             '資產標的': result['stock_ticker'],
@@ -584,6 +731,8 @@ def export_results_to_csv(all_results, start_date, end_date):
             '濾網名稱': result['filter_name'],
             '初始資金': f"{result.get('initial_capital', 0):,.0f}",
             '最終資產總額': f"{result.get('final_value', 0):,.0f}",
+            '最終現金': f"{result.get('final_cash', 0):,.0f}",
+            '最終持倉': positions_str,  # 新增
             '年化報酬率(%)': f"{result['annualized_return']:.2f}",
             '累積報酬率(%)': f"{result['total_return']:.2f}",
             '波動度(%)': f"{result['volatility']:.2f}",

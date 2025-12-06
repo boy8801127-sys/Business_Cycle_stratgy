@@ -38,51 +38,64 @@ class CycleStrategy:
         if score is None:
             return orders
         
+        # 檢查分批執行標記
+        should_buy_in_split = state.get('should_buy_in_split', False)
+        should_sell_in_split = state.get('should_sell_in_split', False)
+        
         # SCORE <= 16（藍燈）：買進股票，賣出避險資產
         if score <= 16 and not state.get('state', False):
-            orders.append({
-                'action': 'buy',
-                'ticker': self.stock_ticker,
-                'percent': 1.0  # 100% 買進股票
-            })
-            state['state'] = True
-            
-            # 如果有避險資產且持有，則賣出
-            if self.hedge_ticker and state.get('hedge_state', False):
+            # 只有在分批買進時間窗口內才產生訂單
+            if should_buy_in_split:
                 orders.append({
-                    'action': 'sell',
-                    'ticker': self.hedge_ticker,
-                    'percent': 1.0  # 100% 賣出避險資產
+                    'action': 'buy',
+                    'ticker': self.stock_ticker,
+                    'percent': 1.0
                 })
-                state['hedge_state'] = False
+                state['state'] = True
+                
+                # 如果有避險資產且持有，則賣出（也要分批）
+                if self.hedge_ticker and state.get('hedge_state', False):
+                    orders.append({
+                        'action': 'sell',
+                        'ticker': self.hedge_ticker,
+                        'percent': 1.0,
+                        'is_hedge_sell': True  # 標記為避險資產賣出
+                    })
+                    state['hedge_state'] = False
         
         # SCORE >= 38（紅燈）：賣出股票，買進避險資產
         elif score >= 38 and state.get('state', False):
-            orders.append({
-                'action': 'sell',
-                'ticker': self.stock_ticker,
-                'percent': 1.0  # 100% 賣出股票
-            })
-            state['state'] = False
-            
-            # 如果有避險資產，則買進
-            if self.hedge_ticker and not state.get('hedge_state', False):
+            # 只有在分批賣出時間窗口內才產生訂單
+            if should_sell_in_split:
                 orders.append({
-                    'action': 'buy',
-                    'ticker': self.hedge_ticker,
-                    'percent': 1.0  # 100% 買進避險資產
+                    'action': 'sell',
+                    'ticker': self.stock_ticker,
+                    'percent': 1.0,
+                    'trigger_hedge_buy': True  # 標記需要同時買進避險資產
                 })
-                state['hedge_state'] = True
+                state['state'] = False
+                
+                # 如果有避險資產，則買進（需要同步分批）
+                if self.hedge_ticker and not state.get('hedge_state', False):
+                    orders.append({
+                        'action': 'buy',
+                        'ticker': self.hedge_ticker,
+                        'percent': 1.0,
+                        'is_hedge_buy': True,  # 標記為避險資產買進
+                        'is_synced_split': True  # 標記需要與股票賣出同步分批
+                    })
+                    state['hedge_state'] = True
         
         # 16 < SCORE < 38：首次進入時買進股票
         elif 16 < score < 38:
             if state.get('a', 0) == 0:
                 state['a'] = 1
                 if not state.get('state', False):
+                    # 首次進入時直接買進（不需要分批）
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': 1.0  # 100% 買進股票
+                        'percent': 1.0
                     })
                     state['state'] = True
         

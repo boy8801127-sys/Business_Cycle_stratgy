@@ -422,6 +422,10 @@ class BacktestEngine:
                     ticker = order.get('ticker')
                     action = order.get('action')
                     percent = order.get('percent', 0)
+                    is_hedge_buy = order.get('is_hedge_buy', False)
+                    is_synced_split = order.get('is_synced_split', False)
+                    trigger_hedge_buy = order.get('trigger_hedge_buy', False)
+                    is_hedge_sell = order.get('is_hedge_sell', False)
                     
                     # 檢查是否為基本策略的買賣信號（需要分批執行）
                     # 基本策略：藍燈買進（percent=1.0）或紅燈賣出（percent=1.0）
@@ -444,6 +448,66 @@ class BacktestEngine:
                         # 分批執行邏輯在上面已經處理，這裡跳過
                         continue
                     
+                    # 處理避險資產的賣出（在藍燈買進股票時）
+                    if need_buy_this_month and action == 'sell' and percent >= 0.9 and is_hedge_sell:
+                        # 避險資產的賣出也要分批執行
+                        if ticker not in sell_split_orders and is_in_first_five_days:
+                            total_days = len(month_first_five_days.get(current_month_key, []))
+                            if total_days == 0:
+                                total_days = 5
+                            sell_split_orders[ticker] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': total_days,
+                                'start_date': date,
+                                'is_hedge_sell': True
+                            }
+                        if ticker not in sell_split_orders or not is_in_first_five_days:
+                            continue
+                        continue
+                    
+                    # 處理基本策略的賣出信號（需要同步買進避險資產）
+                    if need_sell_this_month and action == 'sell' and percent >= 0.9 and trigger_hedge_buy:
+                        # 股票賣出分批執行
+                        if ticker not in sell_split_orders and is_in_last_five_days:
+                            total_days = len(month_last_five_days.get(current_month_key, []))
+                            if total_days == 0:
+                                total_days = 5
+                            sell_split_orders[ticker] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': total_days,
+                                'start_date': date
+                            }
+                        
+                        # 同時初始化避險資產的買進分批訂單（從同一個orders列表中尋找）
+                        hedge_ticker = None
+                        for o in orders:
+                            if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                hedge_ticker = o.get('ticker')
+                                if hedge_ticker and hedge_ticker not in buy_split_orders and is_in_last_five_days:
+                                    total_days = len(month_last_five_days.get(current_month_key, []))
+                                    if total_days == 0:
+                                        total_days = 5
+                                    buy_split_orders[hedge_ticker] = {
+                                        'total_percent': 1.0,
+                                        'executed_percent': 0.0,
+                                        'days_remaining': total_days,
+                                        'start_date': date,
+                                        'is_hedge_buy': True,
+                                        'synced_with_sell': ticker  # 記錄與哪個ticker同步
+                                    }
+                                break
+                        
+                        if ticker not in sell_split_orders or not is_in_last_five_days:
+                            continue
+                        continue
+                    
+                    # 處理避險資產的同步買進（已經在上面處理，這裡跳過）
+                    if is_hedge_buy and is_synced_split:
+                        continue
+                    
+                    # 處理一般賣出信號（不需要觸發避險資產買進的情況）
                     if need_sell_this_month and action == 'sell' and percent >= 0.9:
                         # 這是基本策略的賣出信號，需要分批執行
                         if ticker not in sell_split_orders and is_in_last_five_days:
@@ -529,6 +593,33 @@ class BacktestEngine:
             for ticker, warnings in missing_by_ticker.items():
                 print(f"  {ticker}: {len(warnings)} 筆（首次發生日期：{warnings[0]['date'].strftime('%Y-%m-%d')}）")
         
+        # 計算最終持倉資訊
+        final_positions = {}
+        if self.dates and price_data is not None and len(self.dates) > 0:
+            last_date = self.dates[-1]
+            last_date_str = last_date.strftime('%Y%m%d')
+            last_price_data = price_data[price_data['date'] == last_date_str]
+            
+            for ticker, shares in self.positions.items():
+                ticker_prices = last_price_data[last_price_data['ticker'] == ticker]
+                if not ticker_prices.empty:
+                    price = ticker_prices.iloc[0]['close']
+                    final_positions[ticker] = {
+                        'shares': shares,
+                        'price': price,
+                        'value': shares * price
+                    }
+                else:
+                    # 如果最後一天沒有價格，使用最後一個有效價格
+                    ticker_prices = price_data[price_data['ticker'] == ticker]
+                    if not ticker_prices.empty:
+                        price = ticker_prices.iloc[-1]['close']
+                        final_positions[ticker] = {
+                            'shares': shares,
+                            'price': price,
+                            'value': shares * price
+                        }
+        
         return {
             'dates': self.dates,
             'portfolio_value': self.portfolio_value,
@@ -536,7 +627,10 @@ class BacktestEngine:
             'trades': self.trades,
             'metrics': metrics,
             'final_value': self.portfolio_value[-1] if self.portfolio_value else self.initial_capital,
-            'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0
+            'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0,
+            'final_positions': final_positions,  # 新增
+            'final_cash': self.cash,  # 新增
+            'positions': self.positions  # 新增（簡化版，只有股數）
         }
     
     def _execute_order(self, order, date, price_dict):
