@@ -159,14 +159,37 @@ class BacktestEngine:
                 month_first_trading_day[month_key] = date
             month_last_trading_day[month_key] = date
         
-        # 追蹤月份變化和交易標記
-        prev_prev_val_shifted = None  # 上上個月的分數（用於判斷「變成」）
-        prev_val_shifted = None  # 上個月的分數（用於決定交易）
+        # 追蹤月份變化和交易標記（遞延兩個月邏輯）
+        prev_prev_prev_val_shifted = None  # N-3月的分數（用於判斷「變成」）
+        prev_prev_val_shifted = None  # N-2月的分數（用於決定交易）
+        prev_val_shifted = None  # N-1月的分數（用於追蹤）
         prev_date = None  # 上一個交易日
         current_month_key = None
         prev_month_key = None
         need_buy_this_month = False  # 標記本月是否需要買進
         need_sell_this_month = False  # 標記本月是否需要賣出
+        
+        # 分批執行追蹤機制
+        buy_split_orders = {}  # {ticker: {'total_percent': float, 'executed_percent': float, 'days_remaining': int, 'start_date': date}}
+        sell_split_orders = {}  # 同上
+        grid_split_orders = {}  # {(ticker, action): {'total_percent': float, 'executed_percent': float, 'days_remaining': int, 'start_date': date}}
+        
+        # 預先計算每個月的前5個和後5個交易日（用於分批執行）
+        month_first_five_days = {}  # {(year, month): [date1, date2, date3, date4, date5]}
+        month_last_five_days = {}   # {(year, month): [date1, date2, date3, date4, date5]}
+        
+        for month_key in month_first_trading_day.keys():
+            # 計算前5個交易日
+            first_day = month_first_trading_day[month_key]
+            last_day = month_last_trading_day[month_key]
+            month_trading_days = [d for d in trading_days if (d.year, d.month) == month_key]
+            if len(month_trading_days) >= 5:
+                month_first_five_days[month_key] = month_trading_days[:5]
+                month_last_five_days[month_key] = month_trading_days[-5:]
+            else:
+                # 如果交易日不足5天，使用所有交易日
+                month_first_five_days[month_key] = month_trading_days
+                month_last_five_days[month_key] = month_trading_days
         
         # 每日迭代
         for i, date in enumerate(trading_days):
@@ -203,22 +226,30 @@ class BacktestEngine:
             
             # 檢查是否跨月（考慮跨年情況）
             if prev_month_key is not None and current_month_key != prev_month_key:
-                # 跨月了，檢查上一個月的燈號狀態（使用上一個交易日的 val_shifted）
-                # 當月份變化時，prev_val_shifted 是上上個月的分數，val_shifted 是上個月的分數
-                if prev_val_shifted is not None and val_shifted is not None:
-                    prev_prev_was_blue = prev_val_shifted <= 16
-                    prev_prev_was_red = prev_val_shifted >= 38
-                    prev_was_blue = val_shifted <= 16
-                    prev_was_red = val_shifted >= 38
+                # 跨月了，檢查「兩個月前」（N-2月）的燈號狀態
+                # 當月份變化時：
+                # - prev_prev_prev_val_shifted 是 N-3月的分數
+                # - prev_prev_val_shifted 是 N-2月的分數（用於決定交易）
+                # - prev_val_shifted 是 N-1月的分數
+                # - val_shifted 是當月（N月）的分數
+                if prev_prev_val_shifted is not None:
+                    # N-2月是藍燈（9-16分）
+                    n_minus_2_was_blue = 9 <= prev_prev_val_shifted <= 16
+                    # N-2月是紅燈（38-45分）
+                    n_minus_2_was_red = prev_prev_val_shifted >= 38
+                    # N-3月是藍燈（用於判斷「變成」）
+                    n_minus_3_was_blue = prev_prev_prev_val_shifted is not None and 9 <= prev_prev_prev_val_shifted <= 16
+                    # N-3月是紅燈（用於判斷「變成」）
+                    n_minus_3_was_red = prev_prev_prev_val_shifted is not None and prev_prev_prev_val_shifted >= 38
                     
-                    # 如果上個月是藍燈，且不是從藍燈變來的（變成藍燈），則需要買進
-                    if prev_was_blue and not prev_prev_was_blue:
+                    # 如果N-2月是藍燈，且N-3月不是藍燈（變成藍燈），則在N月開始分批買進
+                    if n_minus_2_was_blue and not n_minus_3_was_blue:
                         need_buy_this_month = True
                     else:
                         need_buy_this_month = False
                     
-                    # 如果上個月是紅燈，且不是從紅燈變來的（變成紅燈），則需要賣出
-                    if prev_was_red and not prev_prev_was_red:
+                    # 如果N-2月是紅燈，且N-3月不是紅燈（變成紅燈），則在N月最後5天分批賣出
+                    if n_minus_2_was_red and not n_minus_3_was_red:
                         need_sell_this_month = True
                     else:
                         need_sell_this_month = False
@@ -226,9 +257,10 @@ class BacktestEngine:
                     need_buy_this_month = False
                     need_sell_this_month = False
                 
-                # 更新月份分數追蹤
-                prev_prev_val_shifted = prev_val_shifted
-                prev_val_shifted = val_shifted
+                # 更新月份分數追蹤（向前推移一個月）
+                prev_prev_prev_val_shifted = prev_prev_val_shifted  # N-3月
+                prev_prev_val_shifted = prev_val_shifted  # N-2月
+                prev_val_shifted = val_shifted  # N-1月
                 prev_month_key = current_month_key
                 
                 # 計算分數動能
@@ -238,8 +270,9 @@ class BacktestEngine:
                 prev_month_date = date
             elif prev_month_key is None:
                 # 第一次，初始化
-                prev_val_shifted = val_shifted
-                prev_prev_val_shifted = None
+                prev_prev_prev_val_shifted = None  # N-3月（還不存在）
+                prev_prev_val_shifted = None  # N-2月（還不存在）
+                prev_val_shifted = val_shifted  # N-1月（當月的前一個月）
                 prev_month_key = current_month_key
                 prev_month_score = score
                 prev_month_date = date
@@ -292,21 +325,181 @@ class BacktestEngine:
             is_first_trading_day = month_first_trading_day.get(current_month_key) == date
             is_last_trading_day = month_last_trading_day.get(current_month_key) == date
             
+            # 檢查是否在前5個或後5個交易日內（用於分批執行）
+            is_in_first_five_days = date in month_first_five_days.get(current_month_key, [])
+            is_in_last_five_days = date in month_last_five_days.get(current_month_key, [])
+            
+            # 計算分批執行的天數索引（1-5）
+            buy_split_day = None
+            sell_split_day = None
+            if need_buy_this_month and is_in_first_five_days:
+                first_five = month_first_five_days.get(current_month_key, [])
+                try:
+                    buy_split_day = first_five.index(date) + 1  # 1-5
+                except ValueError:
+                    buy_split_day = None
+            
+            if need_sell_this_month and is_in_last_five_days:
+                last_five = month_last_five_days.get(current_month_key, [])
+                try:
+                    sell_split_day = last_five.index(date) + 1  # 1-5
+                except ValueError:
+                    sell_split_day = None
+            
             # 在 strategy_state 中設置交易時機標記
             strategy_state['is_first_trading_day'] = is_first_trading_day
             strategy_state['is_last_trading_day'] = is_last_trading_day
+            strategy_state['should_buy_in_split'] = need_buy_this_month and is_in_first_five_days
+            strategy_state['should_sell_in_split'] = need_sell_this_month and is_in_last_five_days
+            strategy_state['buy_split_day'] = buy_split_day
+            strategy_state['sell_split_day'] = sell_split_day
+            # 保留舊的標記以向後相容
             strategy_state['should_buy_on_first_day'] = need_buy_this_month if is_first_trading_day else False
             strategy_state['should_sell_on_last_day'] = need_sell_this_month if is_last_trading_day else False
             
-            # 執行策略
+            # 執行策略（先執行策略以取得ticker資訊）
             # 為等比例配置策略提供持倉資訊
             portfolio_value_before = self._calculate_portfolio_value(date, price_dict)
             orders = strategy_func(strategy_state, date, price_dict, self.positions, portfolio_value_before)
             
-            # 執行訂單
+            # 處理分批執行和策略產生的訂單
+            orders_to_execute = []
+            
+            # 檢查是否有待執行的分批訂單（基本策略）
+            # 買進分批：從第一個交易日開始的5天內
+            for ticker in list(buy_split_orders.keys()):
+                if ticker in price_dict and is_in_first_five_days:
+                    split_order = buy_split_orders[ticker]
+                    if split_order['days_remaining'] > 0:
+                        # 計算今天要執行的比例（總比例的1/總天數）
+                        total_days = len(month_first_five_days.get(current_month_key, []))
+                        if total_days > 0:
+                            today_percent = split_order['total_percent'] / total_days
+                        else:
+                            today_percent = split_order['total_percent']
+                        
+                        orders_to_execute.append({
+                            'action': 'buy',
+                            'ticker': ticker,
+                            'percent': today_percent,
+                            'is_split_order': True
+                        })
+                        
+                        # 更新進度
+                        split_order['executed_percent'] += today_percent
+                        split_order['days_remaining'] -= 1
+                        if split_order['days_remaining'] == 0:
+                            del buy_split_orders[ticker]
+            
+            # 賣出分批：在最後一個交易日之前的5天內
+            for ticker in list(sell_split_orders.keys()):
+                if ticker in price_dict and ticker in self.positions and self.positions[ticker] > 0 and is_in_last_five_days:
+                    split_order = sell_split_orders[ticker]
+                    if split_order['days_remaining'] > 0:
+                        # 計算今天要執行的比例
+                        total_days = len(month_last_five_days.get(current_month_key, []))
+                        if total_days > 0:
+                            today_percent = split_order['total_percent'] / total_days
+                        else:
+                            today_percent = split_order['total_percent']
+                        
+                        orders_to_execute.append({
+                            'action': 'sell',
+                            'ticker': ticker,
+                            'percent': today_percent,
+                            'is_split_order': True
+                        })
+                        
+                        # 更新進度
+                        split_order['executed_percent'] += today_percent
+                        split_order['days_remaining'] -= 1
+                        if split_order['days_remaining'] == 0:
+                            del sell_split_orders[ticker]
+            
+            # 處理策略產生的訂單
             if orders:
                 for order in orders:
-                    self._execute_order(order, date, price_dict)
+                    ticker = order.get('ticker')
+                    action = order.get('action')
+                    percent = order.get('percent', 0)
+                    
+                    # 檢查是否為基本策略的買賣信號（需要分批執行）
+                    # 基本策略：藍燈買進（percent=1.0）或紅燈賣出（percent=1.0）
+                    if need_buy_this_month and action == 'buy' and percent >= 0.9:
+                        # 這是基本策略的買進信號，需要分批執行
+                        if ticker not in buy_split_orders and is_in_first_five_days:
+                            # 初始化分批訂單（只在分批時間窗口內的第一天）
+                            total_days = len(month_first_five_days.get(current_month_key, []))
+                            if total_days == 0:
+                                total_days = 5  # 預設5天
+                            buy_split_orders[ticker] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': total_days,
+                                'start_date': date
+                            }
+                        # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                        if ticker not in buy_split_orders or not is_in_first_five_days:
+                            continue
+                        # 分批執行邏輯在上面已經處理，這裡跳過
+                        continue
+                    
+                    if need_sell_this_month and action == 'sell' and percent >= 0.9:
+                        # 這是基本策略的賣出信號，需要分批執行
+                        if ticker not in sell_split_orders and is_in_last_five_days:
+                            # 初始化分批訂單（只在分批時間窗口內的第一天）
+                            total_days = len(month_last_five_days.get(current_month_key, []))
+                            if total_days == 0:
+                                total_days = 5  # 預設5天
+                            sell_split_orders[ticker] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': total_days,
+                                'start_date': date
+                            }
+                        # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                        if ticker not in sell_split_orders or not is_in_last_five_days:
+                            continue
+                        # 分批執行邏輯在上面已經處理，這裡跳過
+                        continue
+                    
+                    # 檢查是否為網格式策略的倉位調整（也需要分批執行）
+                    # 網格式策略：倉位調整（percent通常在0.05-0.95之間）
+                    if abs(percent) > 0.05 and percent < 0.9:
+                        # 這是網格式策略的倉位調整，需要分批執行
+                        order_key = (ticker, action)
+                        if order_key not in grid_split_orders:
+                            # 初始化分批訂單
+                            grid_split_orders[order_key] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': 5,  # 網格式策略固定5天
+                                'start_date': date
+                            }
+                        
+                        # 執行當天的部分
+                        split_order = grid_split_orders[order_key]
+                        if split_order['days_remaining'] > 0:
+                            today_percent = split_order['total_percent'] / 5
+                            orders_to_execute.append({
+                                'action': action,
+                                'ticker': ticker,
+                                'percent': today_percent,
+                                'is_split_order': True
+                            })
+                            
+                            split_order['executed_percent'] += today_percent
+                            split_order['days_remaining'] -= 1
+                            if split_order['days_remaining'] == 0:
+                                del grid_split_orders[order_key]
+                        continue
+                    
+                    # 其他訂單直接執行（例如：小額調整、避險資產買賣等）
+                    orders_to_execute.append(order)
+            
+            # 執行所有訂單
+            for order in orders_to_execute:
+                self._execute_order(order, date, price_dict)
             
             # 計算投資組合價值
             portfolio_value = self._calculate_portfolio_value(date, price_dict)

@@ -46,7 +46,7 @@ def print_menu():
     print("="*60)
     print("1. 讀取景氣燈號資料（從 CSV，驗證資料）")
     print("2. 蒐集股票和ETF資料（含禮貌休息）")
-    print("3. 執行回測（2015 年至今）")
+    print("3. 執行回測（2020 年至今）")
     print("4. 產生績效報告和圖表")
     print("5. 批次更新資料（含禮貌休息）")
     print("6. 驗證股價資料（檢查異常）")
@@ -72,8 +72,8 @@ def load_cycle_data():
         choice = '2'
     
     # 設定日期範圍
-    start_date = input("起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
-    start_date = start_date if start_date else '2015-01-01'
+    start_date = input("起始日期（YYYY-MM-DD，預設 2020-01-01）: ").strip()
+    start_date = start_date if start_date else '2020-01-01'
     
     end_date = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
     end_date = end_date if end_date else datetime.now().strftime('%Y-%m-%d')
@@ -240,8 +240,8 @@ def collect_stock_data():
     print("\n[選項 2] 蒐集股票和ETF資料")
     print("-" * 60)
     
-    # 詢問是否清除現有資料（從 2015 年重新蒐集）
-    clear_data = input("是否清除現有資料並從 2015-01-01 重新蒐集？(y/n，預設 n): ").strip().lower()
+    # 詢問是否清除現有資料（從 2020 年重新蒐集）
+    clear_data = input("是否清除現有資料並從 2020-01-01 重新蒐集？(y/n，預設 n): ").strip().lower()
     
     db_manager = DatabaseManager()
     
@@ -276,14 +276,14 @@ def collect_stock_data():
                     db_manager.clear_table_data('tw_otc_stock_price_data')
                     print("[Info] 已清除上櫃股票資料表資料")
             
-            print("[Info] 資料清除完成，將從 2015-01-01 開始重新蒐集")
+            print("[Info] 資料清除完成，將從 2020-01-01 開始重新蒐集")
         else:
             print("[Info] 已取消清除資料操作")
             return
     
     # 詢問起始日期
-    start_date_input = input("請輸入起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
-    start_date = start_date_input if start_date_input else '2015-01-01'
+    start_date_input = input("請輸入起始日期（YYYY-MM-DD，預設 2020-01-01）: ").strip()
+    start_date = start_date_input if start_date_input else '2020-01-01'
     
     # 將日期轉換為 YYYYMMDD 格式
     start_date_compact = start_date.replace('-', '')
@@ -319,17 +319,17 @@ def run_backtest():
     
     # 回測時間設定（允許自訂）
     print("\n回測時間範圍設定：")
-    start_date_input = input("起始日期（YYYY-MM-DD，預設 2015-01-05）: ").strip()
+    start_date_input = input("起始日期（YYYY-MM-DD，預設 2020-01-01）: ").strip()
     if not start_date_input:
-        start_date = '2015-01-05'  # 預設起始日期
+        start_date = '2020-01-01'  # 預設起始日期
     else:
         # 驗證日期格式
         try:
             datetime.strptime(start_date_input, '%Y-%m-%d')
             start_date = start_date_input
         except ValueError:
-            print("[Warning] 日期格式錯誤，使用預設日期 2015-01-05")
-            start_date = '2015-01-05'
+            print("[Warning] 日期格式錯誤，使用預設日期 2020-01-01")
+            start_date = '2020-01-01'
     
     end_date_input = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
     if not end_date_input:
@@ -536,7 +536,9 @@ def run_backtest():
                 'win_rate': results['metrics'].get('win_rate', 0),
                 'total_trades': results['metrics']['total_trades'],
                 'position_summary': position_summary,
-                'trades': results['trades']
+                'trades': results['trades'],
+                'final_value': results.get('final_value', capital),
+                'initial_capital': capital
             })
         
         # 輸出結果到 CSV
@@ -580,6 +582,8 @@ def export_results_to_csv(all_results, start_date, end_date):
             '資產標的': result['stock_ticker'],
             '避險資產': result['hedge_ticker'],
             '濾網名稱': result['filter_name'],
+            '初始資金': f"{result.get('initial_capital', 0):,.0f}",
+            '最終資產總額': f"{result.get('final_value', 0):,.0f}",
             '年化報酬率(%)': f"{result['annualized_return']:.2f}",
             '累積報酬率(%)': f"{result['total_return']:.2f}",
             '波動度(%)': f"{result['volatility']:.2f}",
@@ -626,8 +630,8 @@ def batch_update():
     print("\n[選項 5] 批次更新資料")
     print("-" * 60)
     
-    start_date_input = input("請輸入起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
-    start_date = start_date_input if start_date_input else '2015-01-01'
+    start_date_input = input("請輸入起始日期（YYYY-MM-DD，預設 2020-01-01）: ").strip()
+    start_date = start_date_input if start_date_input else '2020-01-01'
     start_date_compact = start_date.replace('-', '')
     days = 9999
     
@@ -675,9 +679,9 @@ def validate_data():
     tickers = [t.strip() for t in ticker_input.split(',')]
     
     # 輸入時間範圍
-    start_date = input("請輸入起始日期（YYYY-MM-DD，預設：2015-01-01）: ").strip()
+    start_date = input("請輸入起始日期（YYYY-MM-DD，預設：2020-01-01）: ").strip()
     if not start_date:
-        start_date = '2015-01-01'
+        start_date = '2020-01-01'
     
     end_date = input("請輸入結束日期（YYYY-MM-DD，預設：今天）: ").strip()
     if not end_date:
@@ -792,9 +796,9 @@ def check_data_integrity():
         ticker = '006208'
     
     # 輸入時間範圍
-    start_date = input("請輸入起始日期（YYYY-MM-DD，預設：2015-01-01）: ").strip()
+    start_date = input("請輸入起始日期（YYYY-MM-DD，預設：2020-01-01）: ").strip()
     if not start_date:
-        start_date = '2015-01-01'
+        start_date = '2020-01-01'
     
     end_date = input("請輸入結束日期（YYYY-MM-DD，預設：今天）: ").strip()
     if not end_date:
