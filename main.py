@@ -53,6 +53,7 @@ def print_menu():
     print("7. 檢查資料完整性（檢查交易日是否有指定股票資料）")
     print("8. 填補零值價格資料（處理沒有交易的日子）")
     print("9. 刪除上櫃資料表中的權證資料（7開頭六位數）")
+    print("10. 更新專案說明文件（自動檢測變更並更新）")
     print("0. 離開")
     print("="*60)
 
@@ -312,9 +313,60 @@ def collect_stock_data():
         traceback.print_exc()
 
 
+def update_project_docs():
+    """更新專案說明文件"""
+    print("\n[更新專案說明文件]")
+    print("-" * 60)
+    
+    try:
+        # 導入更新腳本
+        import sys
+        import importlib.util
+        from pathlib import Path
+        
+        scripts_path = Path(__file__).parent / 'scripts' / 'update_project_context.py'
+        if scripts_path.exists():
+            spec = importlib.util.spec_from_file_location("update_project_context", scripts_path)
+            if spec and spec.loader:
+                update_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(update_module)
+                if hasattr(update_module, 'main'):
+                    update_module.main()
+                else:
+                    print("[Warning] 更新腳本缺少 main 函數")
+            else:
+                print("[Warning] 無法載入更新腳本")
+        else:
+            print("[Warning] 找不到更新腳本，請手動執行 scripts/update_project_context.py")
+    except Exception as e:
+        print(f"[Error] 更新失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def run_backtest():
     """選項 3：執行回測"""
     print("\n[選項 3] 執行回測")
+    
+    # 檢查是否需要更新專案說明文件
+    try:
+        import importlib.util
+        from pathlib import Path
+        
+        scripts_path = Path(__file__).parent / 'scripts' / 'update_project_context.py'
+        if scripts_path.exists():
+            spec = importlib.util.spec_from_file_location("update_project_context", scripts_path)
+            if spec and spec.loader:
+                update_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(update_module)
+                if hasattr(update_module, 'check_file_changes'):
+                    changes = update_module.check_file_changes()
+                    if changes:
+                        print(f"\n[Info] 檢測到 {len(changes)} 個關鍵檔案變更，建議更新專案說明文件")
+                        print("       （可在選單中選擇更新選項）")
+    except Exception as e:
+        # 如果檢查失敗，不影響回測執行
+        pass
     print("-" * 60)
     
     # 回測時間設定（允許自訂）
@@ -768,7 +820,8 @@ def export_results_to_csv(all_results, start_date, end_date):
             numeric_columns = ['股數', '價格', '成本', '手續費', '總成本', 
                              '收入', '證交稅', '淨收入', 'M1B年增率', 
                              'M1B年增率動能', 'M1B動能', 'M1Bvs3月平均', 
-                             '目標持倉比例', '目標股票比例', '目標債券比例']
+                             '目標持倉比例', '目標股票比例', '目標債券比例',
+                             '燈號年份', '燈號月份', '燈號分數']
             for col in numeric_columns:
                 if col in trades_df.columns:
                     if col == '股數':
@@ -916,7 +969,7 @@ def main():
     """主程式"""
     while True:
         print_menu()
-        choice = input("\n請選擇功能（0-9）: ").strip()
+        choice = input("\n請選擇功能（0-10）: ").strip()
         
         if choice == '0':
             print("\n[Info] 離開程式")
@@ -939,6 +992,8 @@ def main():
             fill_zero_price_data()
         elif choice == '9':
             delete_warrants_from_otc()
+        elif choice == '10':
+            update_project_docs()
         else:
             print("[Error] 無效的選項，請重新選擇")
         

@@ -125,38 +125,54 @@ class CycleDataCollector:
         daily_records = []
         
         for trading_day in trading_days:
-            # 找到該交易日所屬的月份資料
-            # 使用該月份的第一天作為關鍵字
-            month_start = pd.Timestamp(trading_day.year, trading_day.month, 1)
+            # 找到該交易日應該使用的月份資料（前一個月）
+            # 因為N月的資料在N+1月27日才發布，所以在N+1月的交易日應該使用N月的資料
+            prev_month = trading_day - pd.DateOffset(months=1)
+            prev_month_year = prev_month.year
+            prev_month_month = prev_month.month
             
-            # 找到該月份的資料
+            # 找到前一個月的資料
             month_data = self.monthly_data[
-                (self.monthly_data['date'].dt.year == trading_day.year) &
-                (self.monthly_data['date'].dt.month == trading_day.month)
+                (self.monthly_data['date'].dt.year == prev_month_year) &
+                (self.monthly_data['date'].dt.month == prev_month_month)
             ]
             
             if not month_data.empty:
-                # 使用該月份的第一筆資料（通常只有一筆）
+                # 使用前一個月的資料
                 month_row = month_data.iloc[0]
+                # 計算發布日期（該月+1個月的27日）
+                publish_date = pd.Timestamp(prev_month_year, prev_month_month, 27) + pd.DateOffset(months=1)
+                # 資料所屬年月
+                data_year = prev_month_year
+                data_month = prev_month_month
+                
                 daily_records.append({
                     'date': trading_day,
                     'score': month_row['score'],
-                    'signal': month_row.get('signal', None)
+                    'signal': month_row.get('signal', None),
+                    'publish_date': publish_date,  # 發布日期
+                    'data_year': data_year,  # 資料所屬年份
+                    'data_month': data_month  # 資料所屬月份
                 })
             else:
-                # 如果找不到該月份的資料，嘗試使用前一個月的資料
-                prev_month = month_start - pd.Timedelta(days=1)
-                prev_month_data = self.monthly_data[
-                    (self.monthly_data['date'].dt.year == prev_month.year) &
-                    (self.monthly_data['date'].dt.month == prev_month.month)
+                # 如果找不到前一個月的資料，嘗試使用前兩個月的資料
+                prev_prev_month = prev_month - pd.DateOffset(months=1)
+                prev_prev_month_data = self.monthly_data[
+                    (self.monthly_data['date'].dt.year == prev_prev_month.year) &
+                    (self.monthly_data['date'].dt.month == prev_prev_month.month)
                 ]
                 
-                if not prev_month_data.empty:
-                    prev_month_row = prev_month_data.iloc[0]
+                if not prev_prev_month_data.empty:
+                    prev_prev_month_row = prev_prev_month_data.iloc[0]
+                    # 計算發布日期
+                    publish_date = pd.Timestamp(prev_prev_month.year, prev_prev_month.month, 27) + pd.DateOffset(months=1)
                     daily_records.append({
                         'date': trading_day,
-                        'score': prev_month_row['score'],
-                        'signal': prev_month_row.get('signal', None)
+                        'score': prev_prev_month_row['score'],
+                        'signal': prev_prev_month_row.get('signal', None),
+                        'publish_date': publish_date,
+                        'data_year': prev_prev_month.year,
+                        'data_month': prev_prev_month.month
                     })
         
         daily_df = pd.DataFrame(daily_records)

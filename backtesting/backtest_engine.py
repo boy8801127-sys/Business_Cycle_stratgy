@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import pandas_market_calendars as pmc
+from backtesting.backtest_validator import BacktestValidator
 
 
 class BacktestEngine:
@@ -39,6 +40,9 @@ class BacktestEngine:
         self.m1b_data = None
         # 缺失價格警告追蹤
         self._missing_price_warnings = []
+        
+        # 驗證器
+        self.validator = BacktestValidator()
     
     def calculate_commission(self, value):
         """計算手續費"""
@@ -159,15 +163,32 @@ class BacktestEngine:
                 month_first_trading_day[month_key] = date
             month_last_trading_day[month_key] = date
         
-        # 追蹤月份變化和交易標記（遞延兩個月邏輯）
-        prev_prev_prev_val_shifted = None  # N-3月的分數（用於判斷「變成」）
-        prev_prev_val_shifted = None  # N-2月的分數（用於決定交易）
-        prev_val_shifted = None  # N-1月的分數（用於追蹤）
+        # 追蹤燈號發布和變化（新邏輯：燈號發布後交易）
+        prev_published_score = None  # 前一個發布的燈號分數
+        prev_published_date = None  # 前一個發布日期
+        prev_published_year = None  # 前一個發布的燈號年份
+        prev_published_month = None  # 前一個發布的燈號月份
         prev_date = None  # 上一個交易日
         current_month_key = None
         prev_month_key = None
-        need_buy_this_month = False  # 標記本月是否需要買進
-        need_sell_this_month = False  # 標記本月是否需要賣出
+        
+        # 買進/賣出標記
+        need_buy_after_publish = False  # 標記是否需要買進（藍燈發布後）
+        buy_start_date = None  # 買進開始日期（發布後的5個交易日）
+        buy_signal_year = None  # 買進信號的燈號年份
+        buy_signal_month = None  # 買進信號的燈號月份
+        buy_signal_score = None  # 買進信號的燈號分數
+        
+        need_sell_next_month = False  # 標記是否需要賣出（紅燈發布後，隔月賣出）
+        sell_month = None  # 賣出月份（隔月）
+        sell_signal_year = None  # 賣出信號的燈號年份
+        sell_signal_month = None  # 賣出信號的燈號月份
+        sell_signal_score = None  # 賣出信號的燈號分數
+        
+        # 當前使用的燈號資訊（用於交易記錄）
+        current_signal_year = None
+        current_signal_month = None
+        current_signal_score = None
         
         # 分批執行追蹤機制
         buy_split_orders = {}  # {ticker: {'total_percent': float, 'executed_percent': float, 'days_remaining': int, 'start_date': date}}
@@ -222,94 +243,112 @@ class BacktestEngine:
         for i, date in enumerate(trading_days):
             self.dates.append(date)
             
-            # 取得當日景氣燈號分數（使用前一日的 val_shifted）
+            # 取得當日景氣燈號資料
             score = None
-            val_shifted = None
+            publish_date = None
+            data_year = None
+            data_month = None
             
             if date in self.cycle_data.index:
                 row = self.cycle_data.loc[date]
                 score = row.get('score')
-                val_shifted = row.get('val_shifted')
+                publish_date = row.get('publish_date')
+                data_year = row.get('data_year')
+                data_month = row.get('data_month')
             else:
                 # 如果找不到當日資料，使用前一個有效日期的資料
                 try:
                     prev_date = max([d for d in self.cycle_data.index if d <= date])
                     row = self.cycle_data.loc[prev_date]
                     score = row.get('score')
-                    val_shifted = row.get('val_shifted')
+                    publish_date = row.get('publish_date')
+                    data_year = row.get('data_year')
+                    data_month = row.get('data_month')
                 except:
                     pass
             
-            if val_shifted is None:
+            if score is None:
                 # 如果沒有景氣燈號資料，跳過
                 continue
             
-            # 更新景氣分數和動能
-            # 注意：score 是當月原始分數，val_shifted 是前一個月的分數（用於交易決策）
-            strategy_state['score'] = val_shifted  # 使用 val_shifted 作為交易決策依據
+            # 更新景氣分數
+            strategy_state['score'] = score
+            current_signal_year = data_year
+            current_signal_month = data_month
+            current_signal_score = score
             
-            # 追蹤月份變化
+            # 追蹤月份變化（用於計算動能）
             current_month_key = (date.year, date.month)
             
-            # 檢查是否跨月（考慮跨年情況）
-            if prev_month_key is not None and current_month_key != prev_month_key:
-                # 跨月了，檢查「兩個月前」（N-2月）的燈號狀態
-                # 當月份變化時：
-                # - prev_prev_prev_val_shifted 是 N-3月的分數
-                # - prev_prev_val_shifted 是 N-2月的分數（用於決定交易）
-                # - prev_val_shifted 是 N-1月的分數
-                # - val_shifted 是當月（N月）的分數
-                if prev_prev_val_shifted is not None:
-                    # N-2月是藍燈（9-16分）
-                    n_minus_2_was_blue = 9 <= prev_prev_val_shifted <= 16
-                    # N-2月是紅燈（38-45分）
-                    n_minus_2_was_red = prev_prev_val_shifted >= 38
-                    # N-3月是藍燈（用於判斷「變成」）
-                    n_minus_3_was_blue = prev_prev_prev_val_shifted is not None and 9 <= prev_prev_prev_val_shifted <= 16
-                    # N-3月是紅燈（用於判斷「變成」）
-                    n_minus_3_was_red = prev_prev_prev_val_shifted is not None and prev_prev_prev_val_shifted >= 38
-                    
-                    # 如果N-2月是藍燈，且N-3月不是藍燈（變成藍燈），則在N月開始分批買進
-                    if n_minus_2_was_blue and not n_minus_3_was_blue:
-                        need_buy_this_month = True
-                    else:
-                        need_buy_this_month = False
-                    
-                    # 如果N-2月是紅燈，且N-3月不是紅燈（變成紅燈），則在N月最後5天分批賣出
-                    if n_minus_2_was_red and not n_minus_3_was_red:
-                        need_sell_this_month = True
-                    else:
-                        need_sell_this_month = False
+            # 檢測燈號發布（發布日期是N+1月27日）
+            if publish_date is not None:
+                # 將publish_date轉換為date對象進行比較
+                if isinstance(publish_date, pd.Timestamp):
+                    publish_date_date = publish_date.date()
+                elif isinstance(publish_date, datetime):
+                    publish_date_date = publish_date.date()
                 else:
-                    need_buy_this_month = False
-                    need_sell_this_month = False
+                    publish_date_date = pd.Timestamp(publish_date).date()
                 
-                # 更新月份分數追蹤（向前推移一個月）
-                prev_prev_prev_val_shifted = prev_prev_val_shifted  # N-3月
-                prev_prev_val_shifted = prev_val_shifted  # N-2月
-                prev_val_shifted = val_shifted  # N-1月
-                prev_month_key = current_month_key
-                
-                # 計算分數動能
+                # 檢查是否為發布日期（或發布日期之後的第一個交易日）
+                if date >= publish_date_date:
+                    # 檢測燈號變化
+                    if prev_published_score is not None:
+                        # 檢測買進信號：從非藍燈變成藍燈
+                        prev_was_blue = 9 <= prev_published_score <= 16
+                        current_is_blue = 9 <= score <= 16
+                        
+                        if not prev_was_blue and current_is_blue:
+                            # 觸發買進：在發布後的5個交易日執行
+                            need_buy_after_publish = True
+                            buy_start_date = date  # 從發布日期開始
+                            buy_signal_year = data_year
+                            buy_signal_month = data_month
+                            buy_signal_score = score
+                            # 記錄買進信號
+                            self.validator.record_signal('buy', date, score, publish_date_date, data_year, data_month)
+                        
+                        # 檢測賣出信號：從非紅燈變成紅燈
+                        prev_was_red = prev_published_score >= 38
+                        current_is_red = score >= 38
+                        
+                        if not prev_was_red and current_is_red:
+                            # 觸發賣出：在隔月的最後5個交易日執行
+                            need_sell_next_month = True
+                            # 計算隔月（發布月份的下一個月）
+                            if isinstance(publish_date, pd.Timestamp):
+                                sell_month = (publish_date.year, publish_date.month + 1 if publish_date.month < 12 else (publish_date.year + 1, 1))
+                            else:
+                                pub_date = pd.Timestamp(publish_date)
+                                sell_month = (pub_date.year, pub_date.month + 1 if pub_date.month < 12 else (pub_date.year + 1, 1))
+                            sell_signal_year = data_year
+                            sell_signal_month = data_month
+                            sell_signal_score = score
+                            # 記錄賣出信號
+                            self.validator.record_signal('sell', date, score, publish_date_date, data_year, data_month)
+                    
+                    # 更新前一個發布的燈號
+                    prev_published_score = score
+                    prev_published_date = date
+                    prev_published_year = data_year
+                    prev_published_month = data_month
+            
+            # 計算分數動能（用於策略判斷）
+            if prev_month_key is not None and current_month_key != prev_month_key:
+                # 跨月了，計算動能
                 if prev_month_score is not None and score is not None:
                     strategy_state['score_momentum'] = score - prev_month_score
                 prev_month_score = score
                 prev_month_date = date
+                prev_month_key = current_month_key
             elif prev_month_key is None:
                 # 第一次，初始化
-                prev_prev_prev_val_shifted = None  # N-3月（還不存在）
-                prev_prev_val_shifted = None  # N-2月（還不存在）
-                prev_val_shifted = val_shifted  # N-1月（當月的前一個月）
                 prev_month_key = current_month_key
                 prev_month_score = score
                 prev_month_date = date
                 strategy_state['score_momentum'] = None
-                need_buy_this_month = False
-                need_sell_this_month = False
             else:
-                # 同一個月內，更新 val_shifted 追蹤（同一個月內的 val_shifted 應該相同）
-                prev_val_shifted = val_shifted if val_shifted is not None else prev_val_shifted
-                # score_momentum 保持不變
+                # 同一個月內，動能保持不變
                 pass
             
             # 更新上一個交易日
@@ -352,42 +391,85 @@ class BacktestEngine:
             is_first_trading_day = month_first_trading_day.get(current_month_key) == date
             is_last_trading_day = month_last_trading_day.get(current_month_key) == date
             
-            # 檢查是否在前5個或第四個禮拜的交易日內（用於分批執行）
+            # 計算買進窗口（發布後的5個交易日）
+            should_buy_in_split = False
+            buy_split_day = None
+            if need_buy_after_publish and buy_start_date is not None:
+                # 找到發布日期之後的5個交易日
+                future_days = [d for d in trading_days if d >= buy_start_date]
+                if len(future_days) >= 5:
+                    buy_window = future_days[:5]
+                else:
+                    buy_window = future_days
+                
+                if date in buy_window:
+                    should_buy_in_split = True
+                    try:
+                        buy_split_day = buy_window.index(date) + 1  # 1-5
+                    except ValueError:
+                        buy_split_day = None
+            
+            # 計算賣出窗口（隔月的最後5個交易日）
+            should_sell_in_split = False
+            sell_split_day = None
+            if need_sell_next_month and sell_month is not None:
+                # 找到隔月的最後5個交易日
+                sell_month_days = [d for d in trading_days if (d.year, d.month) == sell_month]
+                if len(sell_month_days) >= 5:
+                    sell_window = sell_month_days[-5:]
+                else:
+                    # 如果當月交易日不足5天，繼續到下個月的交易日補足
+                    remaining_days = 5 - len(sell_month_days)
+                    if remaining_days > 0:
+                        next_month = (sell_month[0] + (1 if sell_month[1] == 12 else 0),
+                                    (sell_month[1] % 12) + 1)
+                        next_month_days = [d for d in trading_days 
+                                         if (d.year, d.month) == next_month]
+                        if next_month_days:
+                            sell_window = sell_month_days + next_month_days[:remaining_days]
+                        else:
+                            sell_window = sell_month_days
+                    else:
+                        sell_window = sell_month_days
+                
+                if date in sell_window:
+                    should_sell_in_split = True
+                    try:
+                        sell_split_day = sell_window.index(date) + 1  # 1-5
+                    except ValueError:
+                        sell_split_day = None
+            
+            # 檢查是否在前5個或第四個禮拜的交易日內（用於其他策略的分批執行）
             is_in_first_five_days = date in month_first_five_days.get(current_month_key, [])
             # 檢查是否在第四個禮拜的交易日內（可能跨月）
             is_in_fourth_week_five_days = (date in month_fourth_week_five_days.get(current_month_key, []) or
                                            date in month_fourth_week_five_days.get(prev_month_key, []))
             
-            # 計算分批執行的天數索引（1-5）
-            buy_split_day = None
-            sell_split_day = None
-            if need_buy_this_month and is_in_first_five_days:
-                first_five = month_first_five_days.get(current_month_key, [])
-                try:
-                    buy_split_day = first_five.index(date) + 1  # 1-5
-                except ValueError:
-                    buy_split_day = None
+            # 定義需要買進/賣出的標記（基於新邏輯，用於向後相容）
+            need_buy_this_month = need_buy_after_publish and should_buy_in_split
+            need_sell_this_month = need_sell_next_month and should_sell_in_split
             
-            if need_sell_this_month and is_in_fourth_week_five_days:
-                # 檢查當前月份和上個月的第四個禮拜交易日
-                fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
-                if date not in fourth_week_days and prev_month_key:
-                    fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
-                try:
-                    sell_split_day = fourth_week_days.index(date) + 1  # 1-5
-                except ValueError:
-                    sell_split_day = None
+            # 保存當前使用的燈號資訊（用於交易記錄）- 移到這裡，在使用 should_buy_in_split 和 should_sell_in_split 之後
+            self._current_signal_year = current_signal_year
+            self._current_signal_month = current_signal_month
+            self._current_signal_score = current_signal_score
+            self._buy_signal_year = buy_signal_year if need_buy_this_month else None
+            self._buy_signal_month = buy_signal_month if need_buy_this_month else None
+            self._buy_signal_score = buy_signal_score if need_buy_this_month else None
+            self._sell_signal_year = sell_signal_year if need_sell_this_month else None
+            self._sell_signal_month = sell_signal_month if need_sell_this_month else None
+            self._sell_signal_score = sell_signal_score if need_sell_this_month else None
             
             # 在 strategy_state 中設置交易時機標記
             strategy_state['is_first_trading_day'] = is_first_trading_day
             strategy_state['is_last_trading_day'] = is_last_trading_day
-            strategy_state['should_buy_in_split'] = need_buy_this_month and is_in_first_five_days
-            strategy_state['should_sell_in_split'] = need_sell_this_month and is_in_fourth_week_five_days
+            strategy_state['should_buy_in_split'] = should_buy_in_split
+            strategy_state['should_sell_in_split'] = should_sell_in_split
             strategy_state['buy_split_day'] = buy_split_day
             strategy_state['sell_split_day'] = sell_split_day
-            # 保留舊的標記以向後相容
-            strategy_state['should_buy_on_first_day'] = need_buy_this_month if is_first_trading_day else False
-            strategy_state['should_sell_on_last_day'] = need_sell_this_month if is_last_trading_day else False
+            # 保留舊的標記以向後相容（用於其他策略）
+            strategy_state['should_buy_on_first_day'] = False
+            strategy_state['should_sell_on_last_day'] = False
             
             # 執行策略（先執行策略以取得ticker資訊）
             # 為等比例配置策略提供持倉資訊
@@ -636,10 +718,20 @@ class BacktestEngine:
             # 執行所有訂單
             for order in orders_to_execute:
                 self._execute_order(order, date, price_dict)
+                # 記錄訂單到驗證器
+                action = order.get('action')
+                ticker = order.get('ticker')
+                percent = order.get('percent', 0)
+                is_split = order.get('is_split_order', False)
+                is_hedge = order.get('is_hedge_buy', False) or order.get('is_hedge_sell', False)
+                self.validator.record_order(date, action, ticker, percent, is_split, is_hedge)
             
             # 計算投資組合價值
             portfolio_value = self._calculate_portfolio_value(date, price_dict)
             self.portfolio_value.append(portfolio_value)
+            
+            # 記錄持倉快照到驗證器
+            self.validator.record_position_snapshot(date, self.positions, portfolio_value)
             
             # 計算報酬率
             if i == 0:
@@ -649,8 +741,26 @@ class BacktestEngine:
                 daily_return = (portfolio_value - prev_value) / prev_value
                 self.returns.append(daily_return)
         
+        # 執行驗證檢查
+        strategy_name = strategy_func.__class__.__name__ if hasattr(strategy_func, '__class__') else 'Unknown'
+        self.validator.validate_signal_timing(trading_days, self.cycle_data)
+        self.validator.validate_order_execution()
+        self.validator.validate_position_changes(strategy_name)
+        if self.m1b_data is not None:
+            self.validator.validate_m1b_filter(self.m1b_data)
+        
+        # 生成驗證報告
+        validation_report = self.validator.generate_report()
+        
         # 計算績效指標
         metrics = self._calculate_metrics()
+        
+        # 輸出驗證報告摘要
+        print("\n" + "="*60)
+        print("回測驗證報告")
+        print("="*60)
+        print(self.validator.get_violations_summary())
+        print("="*60)
         
         # 輸出缺失價格警告摘要
         if hasattr(self, '_missing_price_warnings') and self._missing_price_warnings:
@@ -702,7 +812,8 @@ class BacktestEngine:
             'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0,
             'final_positions': final_positions,  # 新增
             'final_cash': self.cash,  # 新增
-            'positions': self.positions  # 新增（簡化版，只有股數）
+            'positions': self.positions,  # 新增（簡化版，只有股數）
+            'validation_report': validation_report  # 新增驗證報告
         }
     
     def _execute_order(self, order, date, price_dict):
@@ -797,6 +908,16 @@ class BacktestEngine:
             if order.get('target_bond_pct') is not None:
                 trade_record['目標債券比例'] = round(order.get('target_bond_pct'), 2)
             
+            # 添加燈號資訊（買進時優先使用買進信號的燈號，否則使用當前燈號）
+            if hasattr(self, '_buy_signal_year') and self._buy_signal_year is not None:
+                trade_record['燈號年份'] = self._buy_signal_year
+                trade_record['燈號月份'] = self._buy_signal_month
+                trade_record['燈號分數'] = round(self._buy_signal_score, 2) if self._buy_signal_score is not None else None
+            elif hasattr(self, '_current_signal_year') and self._current_signal_year is not None:
+                trade_record['燈號年份'] = self._current_signal_year
+                trade_record['燈號月份'] = self._current_signal_month
+                trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
+            
             self.trades.append(trade_record)
         
         elif action == 'sell':
@@ -862,6 +983,16 @@ class BacktestEngine:
             if order.get('target_bond_pct') is not None:
                 trade_record['目標債券比例'] = round(order.get('target_bond_pct'), 2)
             
+            # 添加燈號資訊（賣出時優先使用賣出信號的燈號，否則使用當前燈號）
+            if hasattr(self, '_sell_signal_year') and self._sell_signal_year is not None:
+                trade_record['燈號年份'] = self._sell_signal_year
+                trade_record['燈號月份'] = self._sell_signal_month
+                trade_record['燈號分數'] = round(self._sell_signal_score, 2) if self._sell_signal_score is not None else None
+            elif hasattr(self, '_current_signal_year') and self._current_signal_year is not None:
+                trade_record['燈號年份'] = self._current_signal_year
+                trade_record['燈號月份'] = self._current_signal_month
+                trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
+            
             self.trades.append(trade_record)
             
             # 檢查是否需要同步買進避險資產（用賣出得到的現金）
@@ -901,14 +1032,14 @@ class BacktestEngine:
                                 
                                 # 記錄避險資產買進交易
                                 hedge_trade_record = {
-                                    'date': date,
-                                    'action': 'buy',
-                                    'ticker': hedge_ticker,
-                                    'shares': hedge_shares,
-                                    'price': hedge_price,
-                                    'cost': hedge_cost,
-                                    'commission': hedge_commission,
-                                    'total_cost': hedge_total_cost,
+                                    '日期': date,
+                                    '動作': '買進',
+                                    '標的代號': hedge_ticker,
+                                    '股數': hedge_shares,
+                                    '價格': round(hedge_price, 2),
+                                    '成本': round(hedge_cost, 2),
+                                    '手續費': round(hedge_commission, 2),
+                                    '總成本': round(hedge_total_cost, 2),
                                     'is_hedge_buy': True,
                                     'synced_with_sell': ticker
                                 }
@@ -917,17 +1048,23 @@ class BacktestEngine:
                                 if hasattr(self, '_current_strategy_state'):
                                     state = self._current_strategy_state
                                     if state.get('m1b_yoy_month') is not None:
-                                        hedge_trade_record['m1b_yoy_month'] = state.get('m1b_yoy_month')
+                                        hedge_trade_record['M1B年增率'] = round(state.get('m1b_yoy_month'), 2)
                                     if state.get('m1b_yoy_momentum') is not None:
-                                        hedge_trade_record['m1b_yoy_momentum'] = state.get('m1b_yoy_momentum')
+                                        hedge_trade_record['M1B年增率動能'] = round(state.get('m1b_yoy_momentum'), 2)
                                     if state.get('m1b_mom') is not None:
-                                        hedge_trade_record['m1b_mom'] = state.get('m1b_mom')
+                                        hedge_trade_record['M1B動能'] = round(state.get('m1b_mom'), 2)
                                     if state.get('m1b_vs_3m_avg') is not None:
-                                        hedge_trade_record['m1b_vs_3m_avg'] = state.get('m1b_vs_3m_avg')
+                                        hedge_trade_record['M1Bvs3月平均'] = round(state.get('m1b_vs_3m_avg'), 2)
                                 
                                 # 添加持倉比例（如果有）
                                 if order.get('target_position_pct') is not None:
-                                    hedge_trade_record['target_position_pct'] = order.get('target_position_pct')
+                                    hedge_trade_record['目標持倉比例'] = round(order.get('target_position_pct'), 2)
+                                
+                                # 添加燈號資訊（如果有）
+                                if hasattr(self, '_current_signal_year') and self._current_signal_year is not None:
+                                    hedge_trade_record['燈號年份'] = self._current_signal_year
+                                    hedge_trade_record['燈號月份'] = self._current_signal_month
+                                    hedge_trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
                                 
                                 self.trades.append(hedge_trade_record)
     
@@ -995,10 +1132,12 @@ class BacktestEngine:
         # 計算總交易金額
         total_trade_value = 0
         for trade in self.trades:
-            if trade['action'] == 'buy':
-                total_trade_value += trade.get('total_cost', 0)
-            elif trade['action'] == 'sell':
-                total_trade_value += trade.get('proceeds', 0)
+            # 兼容中英文鍵名
+            action = trade.get('動作') or trade.get('action', '')
+            if action == '買進' or action == 'buy':
+                total_trade_value += trade.get('總成本', trade.get('total_cost', 0))
+            elif action == '賣出' or action == 'sell':
+                total_trade_value += trade.get('收入', trade.get('proceeds', 0))
         
         # 計算平均投資組合價值
         if self.portfolio_value:
@@ -1023,16 +1162,20 @@ class BacktestEngine:
         holding_periods = []
         
         for trade in self.trades:
-            ticker = trade['ticker']
-            date = trade['date']
-            action = trade['action']
-            shares = trade['shares']
+            # 兼容中英文鍵名
+            ticker = trade.get('標的代號') or trade.get('ticker', '')
+            date = trade.get('日期') or trade.get('date')
+            action = trade.get('動作') or trade.get('action', '')
+            shares = trade.get('股數') or trade.get('shares', 0)
             
-            if action == 'buy':
+            if not date or not ticker:
+                continue
+            
+            if action == '買進' or action == 'buy':
                 if ticker not in positions:
                     positions[ticker] = []
                 positions[ticker].append((date, shares))
-            elif action == 'sell':
+            elif action == '賣出' or action == 'sell':
                 if ticker in positions and positions[ticker]:
                     # 使用 FIFO 原則計算持倉期間
                     remaining_shares = shares
@@ -1065,17 +1208,21 @@ class BacktestEngine:
         trade_pairs = []  # [(buy_price, sell_price, shares), ...] 完整的買賣配對
         
         for trade in self.trades:
-            ticker = trade['ticker']
-            date = trade['date']
-            action = trade['action']
-            shares = trade['shares']
-            price = trade['price']
+            # 兼容中英文鍵名
+            ticker = trade.get('標的代號') or trade.get('ticker', '')
+            date = trade.get('日期') or trade.get('date')
+            action = trade.get('動作') or trade.get('action', '')
+            shares = trade.get('股數') or trade.get('shares', 0)
+            price = trade.get('價格') or trade.get('price', 0)
             
-            if action == 'buy':
+            if not date or not ticker or price == 0:
+                continue
+            
+            if action == '買進' or action == 'buy':
                 if ticker not in positions:
                     positions[ticker] = []
                 positions[ticker].append((date, price, shares))
-            elif action == 'sell':
+            elif action == '賣出' or action == 'sell':
                 if ticker in positions and positions[ticker]:
                     # 使用 FIFO 原則計算盈虧
                     remaining_shares = shares
@@ -1115,8 +1262,9 @@ class BacktestEngine:
                 'min_holding_period': 0
             }
         
-        buy_count = sum(1 for t in self.trades if t['action'] == 'buy')
-        sell_count = sum(1 for t in self.trades if t['action'] == 'sell')
+        # 兼容中英文鍵名
+        buy_count = sum(1 for t in self.trades if (t.get('動作') == '買進' or t.get('action') == 'buy'))
+        sell_count = sum(1 for t in self.trades if (t.get('動作') == '賣出' or t.get('action') == 'sell'))
         avg_holding = self._calculate_avg_holding_period()
         
         # 計算最長和最短持倉期間
@@ -1124,16 +1272,20 @@ class BacktestEngine:
         positions = {}
         
         for trade in self.trades:
-            ticker = trade['ticker']
-            date = trade['date']
-            action = trade['action']
-            shares = trade['shares']
+            # 兼容中英文鍵名
+            ticker = trade.get('標的代號') or trade.get('ticker', '')
+            date = trade.get('日期') or trade.get('date')
+            action = trade.get('動作') or trade.get('action', '')
+            shares = trade.get('股數') or trade.get('shares', 0)
             
-            if action == 'buy':
+            if not date or not ticker:
+                continue
+            
+            if action == '買進' or action == 'buy':
                 if ticker not in positions:
                     positions[ticker] = []
                 positions[ticker].append((date, shares))
-            elif action == 'sell':
+            elif action == '賣出' or action == 'sell':
                 if ticker in positions and positions[ticker]:
                     remaining_shares = shares
                     while remaining_shares > 0 and positions[ticker]:
