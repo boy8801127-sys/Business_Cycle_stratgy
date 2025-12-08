@@ -7,7 +7,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import pandas_market_calendars as pmc
-from backtesting.backtest_validator import BacktestValidator
 
 
 class BacktestEngine:
@@ -40,9 +39,6 @@ class BacktestEngine:
         self.m1b_data = None
         # 缺失價格警告追蹤
         self._missing_price_warnings = []
-        
-        # 驗證器
-        self.validator = BacktestValidator()
     
     def calculate_commission(self, value):
         """計算手續費"""
@@ -305,8 +301,6 @@ class BacktestEngine:
                             buy_signal_year = data_year
                             buy_signal_month = data_month
                             buy_signal_score = score
-                            # 記錄買進信號
-                            self.validator.record_signal('buy', date, score, publish_date_date, data_year, data_month)
                         
                         # 檢測賣出信號：從非紅燈變成紅燈
                         prev_was_red = prev_published_score >= 38
@@ -324,8 +318,6 @@ class BacktestEngine:
                             sell_signal_year = data_year
                             sell_signal_month = data_month
                             sell_signal_score = score
-                            # 記錄賣出信號
-                            self.validator.record_signal('sell', date, score, publish_date_date, data_year, data_month)
                     
                     # 更新前一個發布的燈號
                     prev_published_score = score
@@ -718,20 +710,10 @@ class BacktestEngine:
             # 執行所有訂單
             for order in orders_to_execute:
                 self._execute_order(order, date, price_dict)
-                # 記錄訂單到驗證器
-                action = order.get('action')
-                ticker = order.get('ticker')
-                percent = order.get('percent', 0)
-                is_split = order.get('is_split_order', False)
-                is_hedge = order.get('is_hedge_buy', False) or order.get('is_hedge_sell', False)
-                self.validator.record_order(date, action, ticker, percent, is_split, is_hedge)
             
             # 計算投資組合價值
             portfolio_value = self._calculate_portfolio_value(date, price_dict)
             self.portfolio_value.append(portfolio_value)
-            
-            # 記錄持倉快照到驗證器
-            self.validator.record_position_snapshot(date, self.positions, portfolio_value)
             
             # 計算報酬率
             if i == 0:
@@ -741,26 +723,8 @@ class BacktestEngine:
                 daily_return = (portfolio_value - prev_value) / prev_value
                 self.returns.append(daily_return)
         
-        # 執行驗證檢查
-        strategy_name = strategy_func.__class__.__name__ if hasattr(strategy_func, '__class__') else 'Unknown'
-        self.validator.validate_signal_timing(trading_days, self.cycle_data)
-        self.validator.validate_order_execution()
-        self.validator.validate_position_changes(strategy_name)
-        if self.m1b_data is not None:
-            self.validator.validate_m1b_filter(self.m1b_data)
-        
-        # 生成驗證報告
-        validation_report = self.validator.generate_report()
-        
         # 計算績效指標
         metrics = self._calculate_metrics()
-        
-        # 輸出驗證報告摘要
-        print("\n" + "="*60)
-        print("回測驗證報告")
-        print("="*60)
-        print(self.validator.get_violations_summary())
-        print("="*60)
         
         # 輸出缺失價格警告摘要
         if hasattr(self, '_missing_price_warnings') and self._missing_price_warnings:
@@ -812,8 +776,7 @@ class BacktestEngine:
             'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0,
             'final_positions': final_positions,  # 新增
             'final_cash': self.cash,  # 新增
-            'positions': self.positions,  # 新增（簡化版，只有股數）
-            'validation_report': validation_report  # 新增驗證報告
+            'positions': self.positions  # 新增（簡化版，只有股數）
         }
     
     def _execute_order(self, order, date, price_dict):
