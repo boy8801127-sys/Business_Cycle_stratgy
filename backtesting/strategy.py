@@ -595,19 +595,42 @@ class M1BFilterProportionalStrategy(M1BFilterStrategy, ProportionalAllocationStr
         if score is None:
             return orders
         
-        # 紅燈區且 M1B 動能 < 0：清倉
+        # 紅燈區且 M1B 動能 < 0：清倉股票，全部投入債券
         if score >= 32 and m1b_momentum is not None and m1b_momentum < 0:
-            # 清倉所有資產
-            if positions:
-                for ticker in list(positions.keys()):
-                    if positions[ticker] > 0:
+            # 清倉股票
+            if positions and self.stock_ticker in positions and positions[self.stock_ticker] > 0:
+                orders.append({
+                    'action': 'sell',
+                    'ticker': self.stock_ticker,
+                    'percent': 1.0,
+                    'trigger_hedge_buy': True,
+                    'hedge_ticker': self.hedge_ticker
+                })
+            
+            # 確保買進100%債券
+            if self.hedge_ticker:
+                # 計算當前債券持倉比例
+                if positions and portfolio_value and portfolio_value > 0:
+                    current_bond_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0)
+                    current_bond_pct = current_bond_value / portfolio_value
+                    if current_bond_pct < 0.95:  # 容許5%誤差
                         orders.append({
-                            'action': 'sell',
-                            'ticker': ticker,
-                            'percent': 1.0
+                            'action': 'buy',
+                            'ticker': self.hedge_ticker,
+                            'percent': 1.0 - current_bond_pct,
+                            'is_hedge_buy': True
                         })
+                else:
+                    # 首次配置：100%債券
+                    orders.append({
+                        'action': 'buy',
+                        'ticker': self.hedge_ticker,
+                        'percent': 1.0,
+                        'is_hedge_buy': True
+                    })
+            
             state['state'] = False
-            state['hedge_state'] = False
+            state['hedge_state'] = True
             return orders
         
         # 其他情況使用等比例配置邏輯
