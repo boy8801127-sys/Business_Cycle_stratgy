@@ -500,7 +500,8 @@ class BacktestEngine:
                             'action': 'buy',
                             'ticker': ticker,
                             'percent': today_percent,
-                            'is_split_order': True
+                            'is_split_order': True,
+                            'trade_step': split_order.get('trade_step')  # 保留原始交易步驟
                         })
                         
                         # 更新進度
@@ -528,7 +529,8 @@ class BacktestEngine:
                             'action': 'sell',
                             'ticker': ticker,
                             'percent': today_percent,
-                            'is_split_order': True
+                            'is_split_order': True,
+                            'trade_step': split_order.get('trade_step')  # 保留原始交易步驟
                         }
                         
                         # 檢查是否需要同步買進避險資產
@@ -536,6 +538,8 @@ class BacktestEngine:
                         if hedge_ticker and hedge_ticker in price_dict:
                             sell_order['trigger_hedge_buy'] = True
                             sell_order['hedge_ticker'] = hedge_ticker
+                            # 從原始訂單中獲取避險資產的交易步驟（如果有）
+                            sell_order['hedge_trade_step'] = split_order.get('hedge_trade_step')
                         
                         orders_to_execute.append(sell_order)
                         
@@ -569,7 +573,8 @@ class BacktestEngine:
                                 'total_percent': percent,
                                 'executed_percent': 0.0,
                                 'days_remaining': total_days,
-                                'start_date': date
+                                'start_date': date,
+                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
                             }
                         # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
                         if ticker not in buy_split_orders or not is_in_first_five_days:
@@ -589,7 +594,8 @@ class BacktestEngine:
                                 'executed_percent': 0.0,
                                 'days_remaining': total_days,
                                 'start_date': date,
-                                'is_hedge_sell': True
+                                'is_hedge_sell': True,
+                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
                             }
                         if ticker not in sell_split_orders or not is_in_first_five_days:
                             continue
@@ -603,20 +609,26 @@ class BacktestEngine:
                             if date not in fourth_week_days and prev_month_key:
                                 fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
                             total_days = len(fourth_week_days) if fourth_week_days else 5
+                            
+                            # 同時記錄需要同步買進的避險資產ticker和交易步驟
+                            hedge_ticker = None
+                            hedge_trade_step = None
+                            for o in orders:
+                                if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                    hedge_ticker = o.get('ticker')
+                                    hedge_trade_step = o.get('trade_step')
+                                    break
+                            
                             sell_split_orders[ticker] = {
                                 'total_percent': percent,
                                 'executed_percent': 0.0,
                                 'days_remaining': total_days,
                                 'start_date': date,
-                                'initial_days': total_days
+                                'initial_days': total_days,
+                                'trade_step': order.get('trade_step'),  # 保存原始交易步驟
+                                'hedge_trade_step': hedge_trade_step  # 保存避險資產交易步驟
                             }
                             
-                            # 同時記錄需要同步買進的避險資產ticker
-                            hedge_ticker = None
-                            for o in orders:
-                                if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
-                                    hedge_ticker = o.get('ticker')
-                                    break
                             if hedge_ticker:
                                 sell_split_orders[ticker]['hedge_ticker'] = hedge_ticker
                         
@@ -633,6 +645,15 @@ class BacktestEngine:
                             if date not in fourth_week_days and prev_month_key:
                                 fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
                             total_days = len(fourth_week_days) if fourth_week_days else 5
+                            # 從賣出訂單中獲取避險資產的交易步驟
+                            hedge_trade_step = sell_split_orders.get(ticker, {}).get('hedge_trade_step')
+                            if not hedge_trade_step:
+                                # 如果沒有，從原始訂單中尋找
+                                for o in orders:
+                                    if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                        hedge_trade_step = o.get('trade_step')
+                                        break
+                            
                             buy_split_orders[hedge_ticker] = {
                                 'total_percent': 1.0,
                                 'executed_percent': 0.0,
@@ -640,7 +661,8 @@ class BacktestEngine:
                                 'start_date': date,
                                 'is_hedge_buy': True,
                                 'synced_with_sell': ticker,  # 記錄與哪個ticker同步
-                                'initial_days': total_days
+                                'initial_days': total_days,
+                                'trade_step': hedge_trade_step  # 保存避險資產交易步驟
                             }
                         
                         if ticker not in sell_split_orders or not is_in_fourth_week_five_days:
@@ -665,7 +687,8 @@ class BacktestEngine:
                                 'executed_percent': 0.0,
                                 'days_remaining': total_days,
                                 'start_date': date,
-                                'initial_days': total_days
+                                'initial_days': total_days,
+                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
                             }
                         # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
                         if ticker not in sell_split_orders or not is_in_fourth_week_five_days:
@@ -684,7 +707,8 @@ class BacktestEngine:
                                 'total_percent': percent,
                                 'executed_percent': 0.0,
                                 'days_remaining': 5,  # 網格式策略固定5天
-                                'start_date': date
+                                'start_date': date,
+                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
                             }
                         
                         # 執行當天的部分
@@ -695,7 +719,8 @@ class BacktestEngine:
                                 'action': action,
                                 'ticker': ticker,
                                 'percent': today_percent,
-                                'is_split_order': True
+                                'is_split_order': True,
+                                'trade_step': split_order.get('trade_step')  # 保留原始交易步驟
                             })
                             
                             split_order['executed_percent'] += today_percent
@@ -779,6 +804,50 @@ class BacktestEngine:
             'positions': self.positions  # 新增（簡化版，只有股數）
         }
     
+    def _format_trade_step(self, trade_step, is_hedge=False):
+        """
+        格式化交易步驟字串
+        
+        參數:
+        - trade_step: 交易步驟字典 {'reason': str, 'conditions': [{'name': str, 'value': float}, ...]}
+        - is_hedge: 是否為避險資產交易
+        
+        回傳:
+        - 格式化的交易步驟字串，例如：「藍燈買進 | 景氣燈號分數: 12.0 | M1B動能: -0.5」
+        """
+        if not trade_step:
+            if is_hedge:
+                return '同步買進避險資產'
+            return '未知原因'
+        
+        reason = trade_step.get('reason', '未知原因')
+        conditions = trade_step.get('conditions', [])
+        
+        if not conditions:
+            return reason
+        
+        # 格式化條件字串
+        condition_strs = []
+        for condition in conditions:
+            name = condition.get('name', '')
+            value = condition.get('value')
+            
+            if name and value is not None:
+                # 格式化數值
+                if isinstance(value, float):
+                    value_str = f"{value:.2f}"
+                elif isinstance(value, (int, str)):
+                    value_str = str(value)
+                else:
+                    value_str = str(value)
+                
+                condition_strs.append(f"{name}: {value_str}")
+        
+        if condition_strs:
+            return f"{reason} | {' | '.join(condition_strs)}"
+        else:
+            return reason
+    
     def _execute_order(self, order, date, price_dict):
         """
         執行訂單
@@ -843,6 +912,7 @@ class BacktestEngine:
             trade_record = {
                 '日期': date,
                 '動作': '買進',
+                '交易步驟': self._format_trade_step(order.get('trade_step'), is_hedge=order.get('is_hedge_buy', False)),
                 '標的代號': ticker,
                 '股數': shares,  # 股數保持整數
                 '價格': round(price, 2),
@@ -917,6 +987,7 @@ class BacktestEngine:
             trade_record = {
                 '日期': date,
                 '動作': '賣出',
+                '交易步驟': self._format_trade_step(order.get('trade_step')),
                 '標的代號': ticker,
                 '股數': shares,  # 股數保持整數
                 '價格': round(price, 2),
@@ -994,9 +1065,16 @@ class BacktestEngine:
                                     self.positions[hedge_ticker] = hedge_shares
                                 
                                 # 記錄避險資產買進交易
+                                # 從原始訂單中獲取交易步驟（如果有），否則使用預設值
+                                hedge_trade_step = order.get('hedge_trade_step') or order.get('trade_step')
+                                if not hedge_trade_step:
+                                    # 如果沒有交易步驟，檢查是否有避險資產的訂單
+                                    hedge_trade_step = None
+                                
                                 hedge_trade_record = {
                                     '日期': date,
                                     '動作': '買進',
+                                    '交易步驟': self._format_trade_step(hedge_trade_step, is_hedge=True),
                                     '標的代號': hedge_ticker,
                                     '股數': hedge_shares,
                                     '價格': round(hedge_price, 2),

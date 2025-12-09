@@ -18,6 +18,56 @@ class CycleStrategy:
         self.stock_ticker = stock_ticker
         self.hedge_ticker = hedge_ticker
     
+    def _create_trade_step(self, reason, state, additional_conditions=None):
+        """
+        建立交易步驟資訊
+        
+        參數:
+        - reason: 交易原因（例如：'藍燈買進'、'紅燈賣出'）
+        - state: 策略狀態字典
+        - additional_conditions: 額外條件列表 [{'name': str, 'value': float}, ...]
+        
+        回傳:
+        - 交易步驟字典 {'reason': str, 'conditions': [{'name': str, 'value': float}, ...]}
+        """
+        conditions = []
+        
+        # 添加景氣燈號分數
+        score = state.get('score')
+        if score is not None:
+            conditions.append({'name': '景氣燈號分數', 'value': score})
+        
+        # 添加M1B相關條件（如果有）
+        m1b_yoy_momentum = state.get('m1b_yoy_momentum')
+        if m1b_yoy_momentum is not None:
+            conditions.append({'name': 'M1B年增率動能', 'value': m1b_yoy_momentum})
+        
+        m1b_mom = state.get('m1b_mom')
+        if m1b_mom is not None:
+            conditions.append({'name': 'M1B動能', 'value': m1b_mom})
+        
+        m1b_yoy_month = state.get('m1b_yoy_month')
+        if m1b_yoy_month is not None:
+            conditions.append({'name': 'M1B年增率', 'value': m1b_yoy_month})
+        
+        m1b_vs_3m_avg = state.get('m1b_vs_3m_avg')
+        if m1b_vs_3m_avg is not None:
+            conditions.append({'name': 'M1Bvs3月平均', 'value': m1b_vs_3m_avg})
+        
+        # 添加分數動能（如果有）
+        score_momentum = state.get('score_momentum')
+        if score_momentum is not None:
+            conditions.append({'name': '景氣分數動能', 'value': score_momentum})
+        
+        # 添加額外條件
+        if additional_conditions:
+            conditions.extend(additional_conditions)
+        
+        return {
+            'reason': reason,
+            'conditions': conditions
+        }
+    
     def generate_orders(self, state, date, price_dict, positions=None, portfolio_value=None):
         """
         根據策略狀態和景氣燈號產生訂單
@@ -46,20 +96,24 @@ class CycleStrategy:
         if score <= 16 and not state.get('state', False):
             # 只有在分批買進時間窗口內才產生訂單
             if should_buy_in_split:
+                trade_step = self._create_trade_step('藍燈買進', state)
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': 1.0
+                    'percent': 1.0,
+                    'trade_step': trade_step
                 })
                 state['state'] = True
                 
                 # 如果有避險資產且持有，則賣出（也要分批）
                 if self.hedge_ticker and state.get('hedge_state', False):
+                    hedge_trade_step = self._create_trade_step('藍燈賣出避險資產', state)
                     orders.append({
                         'action': 'sell',
                         'ticker': self.hedge_ticker,
                         'percent': 1.0,
-                        'is_hedge_sell': True  # 標記為避險資產賣出
+                        'is_hedge_sell': True,  # 標記為避險資產賣出
+                        'trade_step': hedge_trade_step
                     })
                     state['hedge_state'] = False
         
@@ -67,22 +121,26 @@ class CycleStrategy:
         elif score >= 38 and state.get('state', False):
             # 只有在分批賣出時間窗口內才產生訂單
             if should_sell_in_split:
+                trade_step = self._create_trade_step('紅燈賣出', state)
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': 1.0,
-                    'trigger_hedge_buy': True  # 標記需要同時買進避險資產
+                    'trigger_hedge_buy': True,  # 標記需要同時買進避險資產
+                    'trade_step': trade_step
                 })
                 state['state'] = False
                 
                 # 如果有避險資產，則買進（需要同步分批）
                 if self.hedge_ticker and not state.get('hedge_state', False):
+                    hedge_trade_step = self._create_trade_step('紅燈買進避險資產', state)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.hedge_ticker,
                         'percent': 1.0,
                         'is_hedge_buy': True,  # 標記為避險資產買進
-                        'is_synced_split': True  # 標記需要與股票賣出同步分批
+                        'is_synced_split': True,  # 標記需要與股票賣出同步分批
+                        'trade_step': hedge_trade_step
                     })
                     state['hedge_state'] = True
         
@@ -92,10 +150,12 @@ class CycleStrategy:
                 state['a'] = 1
                 if not state.get('state', False):
                     # 首次進入時直接買進（不需要分批）
+                    trade_step = self._create_trade_step('首次進入買進', state)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': trade_step
                     })
                     state['state'] = True
         
@@ -159,18 +219,22 @@ class FiftyFiftyStrategy(CycleStrategy):
         
         # SCORE <= 16（藍燈）：100% 買進股票，賣出避險資產
         if score <= 16 and not state.get('state', False):
+            trade_step = self._create_trade_step('藍燈買進', state)
             orders.append({
                 'action': 'buy',
                 'ticker': self.stock_ticker,
-                'percent': 1.0
+                'percent': 1.0,
+                'trade_step': trade_step
             })
             state['state'] = True
             
             if self.hedge_ticker and state.get('hedge_state', False):
+                hedge_trade_step = self._create_trade_step('藍燈賣出避險資產', state)
                 orders.append({
                     'action': 'sell',
                     'ticker': self.hedge_ticker,
-                    'percent': 1.0
+                    'percent': 1.0,
+                    'trade_step': hedge_trade_step
                 })
                 state['hedge_state'] = False
         
@@ -184,12 +248,16 @@ class FiftyFiftyStrategy(CycleStrategy):
                 # 如果股票比例 > 55%，需要減碼至50%
                 if current_stock_pct > 0.55:
                     sell_pct = (current_stock_pct - 0.5) / current_stock_pct
+                    trade_step = self._create_trade_step('紅燈減碼至50%', state, [
+                        {'name': '當前股票比例', 'value': current_stock_pct}
+                    ])
                     orders.append({
                         'action': 'sell',
                         'ticker': self.stock_ticker,
                         'percent': sell_pct,
                         'trigger_hedge_buy': True,
-                        'hedge_ticker': self.hedge_ticker
+                        'hedge_ticker': self.hedge_ticker,
+                        'trade_step': trade_step
                     })
                     
                     # 同步買進避險資產
@@ -200,29 +268,38 @@ class FiftyFiftyStrategy(CycleStrategy):
                         hedge_diff = target_hedge_pct - current_hedge_pct
                         
                         if hedge_diff > 0.05:  # 5% 的容許誤差
+                            hedge_trade_step = self._create_trade_step('紅燈買進避險資產至50%', state, [
+                                {'name': '當前避險資產比例', 'value': current_hedge_pct},
+                                {'name': '目標避險資產比例', 'value': target_hedge_pct}
+                            ])
                             orders.append({
                                 'action': 'buy',
                                 'ticker': self.hedge_ticker,
                                 'percent': hedge_diff,
-                                'is_hedge_buy': True
+                                'is_hedge_buy': True,
+                                'trade_step': hedge_trade_step
                             })
                             state['hedge_state'] = True
             else:
                 # 如果沒有持倉資訊，賣出50%股票並買進50%避險資產
+                trade_step = self._create_trade_step('紅燈減碼至50%', state)
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': 0.5,
                     'trigger_hedge_buy': True,
-                    'hedge_ticker': self.hedge_ticker
+                    'hedge_ticker': self.hedge_ticker,
+                    'trade_step': trade_step
                 })
                 
                 if self.hedge_ticker:
+                    hedge_trade_step = self._create_trade_step('紅燈買進避險資產至50%', state)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.hedge_ticker,
                         'percent': 0.5,
-                        'is_hedge_buy': True
+                        'is_hedge_buy': True,
+                        'trade_step': hedge_trade_step
                     })
                     state['hedge_state'] = True
         
@@ -231,10 +308,12 @@ class FiftyFiftyStrategy(CycleStrategy):
             if state.get('a', 0) == 0:
                 state['a'] = 1
                 if not state.get('state', False):
+                    trade_step = self._create_trade_step('首次進入買進', state)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': trade_step
                     })
                     state['state'] = True
         
@@ -325,16 +404,26 @@ class ProportionalAllocationStrategy(CycleStrategy):
         if positions is None or portfolio_value is None or portfolio_value <= 0:
             # 首次買進目標比例的股票和債券
             if target_stock_pct > 0:
+                trade_step = self._create_trade_step('等比例配置首次買進', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': target_stock_pct
+                    'percent': target_stock_pct,
+                    'trade_step': trade_step
                 })
             if target_bond_pct > 0 and self.hedge_ticker:
+                trade_step = self._create_trade_step('等比例配置首次買進', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
-                    'percent': target_bond_pct
+                    'percent': target_bond_pct,
+                    'trade_step': trade_step
                 })
             return orders
         
@@ -356,33 +445,57 @@ class ProportionalAllocationStrategy(CycleStrategy):
         if abs(stock_diff) > threshold:
             if stock_diff > 0:
                 # 需要增持股票
+                trade_step = self._create_trade_step('等比例配置增持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': stock_diff
+                    'percent': stock_diff,
+                    'trade_step': trade_step
                 })
             else:
                 # 需要減持股票
+                trade_step = self._create_trade_step('等比例配置減持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
-                    'percent': abs(stock_diff)
+                    'percent': abs(stock_diff),
+                    'trade_step': trade_step
                 })
         
         if self.hedge_ticker and abs(bond_diff) > threshold:
             if bond_diff > 0:
                 # 需要增持債券
+                trade_step = self._create_trade_step('等比例配置增持債券', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '當前債券比例', 'value': current_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
-                    'percent': bond_diff
+                    'percent': bond_diff,
+                    'trade_step': trade_step
                 })
             else:
                 # 需要減持債券
+                trade_step = self._create_trade_step('等比例配置減持債券', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '當前債券比例', 'value': current_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.hedge_ticker,
-                    'percent': abs(bond_diff)
+                    'percent': abs(bond_diff),
+                    'trade_step': trade_step
                 })
         
         return orders
@@ -427,10 +540,18 @@ class BuyAndHoldStrategy:
         # 只在第一次買進
         if not self.bought:
             if self.stock_ticker in price_dict:
+                # BuyAndHoldStrategy 不使用 CycleStrategy 的 _create_trade_step，需要手動建立
+                trade_step = {
+                    'reason': '買進並持有',
+                    'conditions': [
+                        {'name': '策略類型', 'value': 'BuyAndHold'}
+                    ]
+                }
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': 1.0  # 100% 買進
+                    'percent': 1.0,  # 100% 買進
+                    'trade_step': trade_step
                 })
                 self.bought = True
         
@@ -463,18 +584,22 @@ class M1BFilterStrategy(CycleStrategy):
         
         # SCORE <= 16（藍燈）：買進股票，賣出避險資產
         if score <= 16 and not state.get('state', False):
+            trade_step = self._create_trade_step('藍燈買進', state)
             orders.append({
                 'action': 'buy',
                 'ticker': self.stock_ticker,
-                'percent': 1.0
+                'percent': 1.0,
+                'trade_step': trade_step
             })
             state['state'] = True
             
             if self.hedge_ticker and state.get('hedge_state', False):
+                hedge_trade_step = self._create_trade_step('藍燈賣出避險資產', state)
                 orders.append({
                     'action': 'sell',
                     'ticker': self.hedge_ticker,
-                    'percent': 1.0
+                    'percent': 1.0,
+                    'trade_step': hedge_trade_step
                 })
                 state['hedge_state'] = False
         
@@ -483,18 +608,26 @@ class M1BFilterStrategy(CycleStrategy):
             if m1b_momentum is not None and m1b_momentum < 0:
                 # 價量背離：清倉離場
                 if state.get('state', False):
+                    trade_step = self._create_trade_step('價量背離清倉', state, [
+                        {'name': 'M1B年增率動能', 'value': m1b_momentum}
+                    ])
                     orders.append({
                         'action': 'sell',
                         'ticker': self.stock_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': trade_step
                     })
                     state['state'] = False
                 
                 if self.hedge_ticker and state.get('hedge_state', False):
+                    hedge_trade_step = self._create_trade_step('價量背離清倉避險資產', state, [
+                        {'name': 'M1B年增率動能', 'value': m1b_momentum}
+                    ])
                     orders.append({
                         'action': 'sell',
                         'ticker': self.hedge_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': hedge_trade_step
                     })
                     state['hedge_state'] = False
             else:
@@ -505,17 +638,26 @@ class M1BFilterStrategy(CycleStrategy):
                         current_value = positions.get(self.stock_ticker, 0) * price_dict.get(self.stock_ticker, 0)
                         current_pct = current_value / portfolio_value if portfolio_value > 0 else 0
                         if current_pct > 0.55:  # 如果超過 55%，減碼至 50%
+                            trade_step = self._create_trade_step('紅燈減碼至50%', state, [
+                                {'name': 'M1B年增率動能', 'value': m1b_momentum if m1b_momentum is not None else '無資料'},
+                                {'name': '當前股票比例', 'value': current_pct}
+                            ])
                             orders.append({
                                 'action': 'sell',
                                 'ticker': self.stock_ticker,
-                                'percent': (current_pct - 0.5) / current_pct
+                                'percent': (current_pct - 0.5) / current_pct,
+                                'trade_step': trade_step
                             })
                     else:
                         # 如果沒有持倉資訊，賣出 50%
+                        trade_step = self._create_trade_step('紅燈減碼至50%', state, [
+                            {'name': 'M1B年增率動能', 'value': m1b_momentum if m1b_momentum is not None else '無資料'}
+                        ])
                         orders.append({
                             'action': 'sell',
                             'ticker': self.stock_ticker,
-                            'percent': 0.5
+                            'percent': 0.5,
+                            'trade_step': trade_step
                         })
                     
                     # 處理避險資產（如果有）：減碼時同步買進避險資產，補足到100%（50%股票 + 50%避險資產）
@@ -531,20 +673,30 @@ class M1BFilterStrategy(CycleStrategy):
                             threshold = 0.05  # 5% 的容許誤差
                             
                             if abs(hedge_diff) > threshold and hedge_diff > 0:
+                                hedge_trade_step = self._create_trade_step('紅燈買進避險資產至50%', state, [
+                                    {'name': 'M1B年增率動能', 'value': m1b_momentum if m1b_momentum is not None else '無資料'},
+                                    {'name': '當前避險資產比例', 'value': current_hedge_pct},
+                                    {'name': '目標避險資產比例', 'value': target_hedge_pct}
+                                ])
                                 orders.append({
                                     'action': 'buy',
                                     'ticker': self.hedge_ticker,
                                     'percent': hedge_diff,
-                                    'is_hedge_buy': True
+                                    'is_hedge_buy': True,
+                                    'trade_step': hedge_trade_step
                                 })
                                 state['hedge_state'] = True
                         else:
                             # 首次配置：買進50%避險資產
+                            hedge_trade_step = self._create_trade_step('紅燈買進避險資產至50%', state, [
+                                {'name': 'M1B年增率動能', 'value': m1b_momentum if m1b_momentum is not None else '無資料'}
+                            ])
                             orders.append({
                                 'action': 'buy',
                                 'ticker': self.hedge_ticker,
                                 'percent': 0.5,
-                                'is_hedge_buy': True
+                                'is_hedge_buy': True,
+                                'trade_step': hedge_trade_step
                             })
                             state['hedge_state'] = True
         
@@ -553,10 +705,12 @@ class M1BFilterStrategy(CycleStrategy):
             if state.get('a', 0) == 0:
                 state['a'] = 1
                 if not state.get('state', False):
+                    trade_step = self._create_trade_step('首次進入買進', state)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': trade_step
                     })
                     state['state'] = True
         
@@ -599,12 +753,16 @@ class M1BFilterProportionalStrategy(M1BFilterStrategy, ProportionalAllocationStr
         if score >= 32 and m1b_momentum is not None and m1b_momentum < 0:
             # 清倉股票
             if positions and self.stock_ticker in positions and positions[self.stock_ticker] > 0:
+                trade_step = self._create_trade_step('價量背離清倉股票', state, [
+                    {'name': 'M1B年增率動能', 'value': m1b_momentum}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': 1.0,
                     'trigger_hedge_buy': True,
-                    'hedge_ticker': self.hedge_ticker
+                    'hedge_ticker': self.hedge_ticker,
+                    'trade_step': trade_step
                 })
             
             # 確保買進100%債券
@@ -614,19 +772,28 @@ class M1BFilterProportionalStrategy(M1BFilterStrategy, ProportionalAllocationStr
                     current_bond_value = positions.get(self.hedge_ticker, 0) * price_dict.get(self.hedge_ticker, 0)
                     current_bond_pct = current_bond_value / portfolio_value
                     if current_bond_pct < 0.95:  # 容許5%誤差
+                        hedge_trade_step = self._create_trade_step('價量背離買進100%債券', state, [
+                            {'name': 'M1B年增率動能', 'value': m1b_momentum},
+                            {'name': '當前債券比例', 'value': current_bond_pct}
+                        ])
                         orders.append({
                             'action': 'buy',
                             'ticker': self.hedge_ticker,
                             'percent': 1.0 - current_bond_pct,
-                            'is_hedge_buy': True
+                            'is_hedge_buy': True,
+                            'trade_step': hedge_trade_step
                         })
                 else:
                     # 首次配置：100%債券
+                    hedge_trade_step = self._create_trade_step('價量背離買進100%債券', state, [
+                        {'name': 'M1B年增率動能', 'value': m1b_momentum}
+                    ])
                     orders.append({
                         'action': 'buy',
                         'ticker': self.hedge_ticker,
                         'percent': 1.0,
-                        'is_hedge_buy': True
+                        'is_hedge_buy': True,
+                        'trade_step': hedge_trade_step
                     })
             
             state['state'] = False
@@ -709,11 +876,21 @@ class DynamicPositionStrategy(CycleStrategy):
         if positions is None or portfolio_value is None or portfolio_value <= 0:
             # 首次配置
             if target_position > 0:
+                # 建立交易步驟
+                reason = '動態倉位首次配置'
+                additional_conditions = [{'name': '目標倉位', 'value': target_position}]
+                if score_momentum is not None:
+                    additional_conditions.append({'name': '景氣分數動能', 'value': score_momentum})
+                if m1b_momentum is not None:
+                    additional_conditions.append({'name': 'M1B年增率動能', 'value': m1b_momentum})
+                
+                trade_step = self._create_trade_step(reason, state, additional_conditions)
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
                     'percent': target_position,
-                    'target_position_pct': target_position  # 新增：目標持倉比例
+                    'target_position_pct': target_position,
+                    'trade_step': trade_step
                 })
                 state['state'] = True
         else:
@@ -728,20 +905,44 @@ class DynamicPositionStrategy(CycleStrategy):
             if abs(diff) > threshold:
                 if diff > 0:
                     # 需要增持
+                    reason = '動態倉位增持'
+                    additional_conditions = [
+                        {'name': '目標倉位', 'value': target_position},
+                        {'name': '當前倉位', 'value': current_pct}
+                    ]
+                    if score_momentum is not None:
+                        additional_conditions.append({'name': '景氣分數動能', 'value': score_momentum})
+                    if m1b_momentum is not None:
+                        additional_conditions.append({'name': 'M1B年增率動能', 'value': m1b_momentum})
+                    
+                    trade_step = self._create_trade_step(reason, state, additional_conditions)
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
                         'percent': diff,
-                        'target_position_pct': target_position  # 新增：目標持倉比例
+                        'target_position_pct': target_position,
+                        'trade_step': trade_step
                     })
                     state['state'] = True
                 else:
                     # 需要減持
+                    reason = '動態倉位減持'
+                    additional_conditions = [
+                        {'name': '目標倉位', 'value': target_position},
+                        {'name': '當前倉位', 'value': current_pct}
+                    ]
+                    if score_momentum is not None:
+                        additional_conditions.append({'name': '景氣分數動能', 'value': score_momentum})
+                    if m1b_momentum is not None:
+                        additional_conditions.append({'name': 'M1B年增率動能', 'value': m1b_momentum})
+                    
+                    trade_step = self._create_trade_step(reason, state, additional_conditions)
                     orders.append({
                         'action': 'sell',
                         'ticker': self.stock_ticker,
                         'percent': abs(diff),
-                        'target_position_pct': target_position  # 新增：目標持倉比例
+                        'target_position_pct': target_position,
+                        'trade_step': trade_step
                     })
                     if target_position == 0:
                         state['state'] = False
@@ -751,10 +952,12 @@ class DynamicPositionStrategy(CycleStrategy):
             if target_position == 0:
                 # 清倉時也清空避險資產
                 if state.get('hedge_state', False):
+                    hedge_trade_step = self._create_trade_step('清倉避險資產', state)
                     orders.append({
                         'action': 'sell',
                         'ticker': self.hedge_ticker,
-                        'percent': 1.0
+                        'percent': 1.0,
+                        'trade_step': hedge_trade_step
                     })
                     state['hedge_state'] = False
             elif target_position < 1.0:
@@ -774,29 +977,45 @@ class DynamicPositionStrategy(CycleStrategy):
                     if abs(hedge_diff) > threshold:
                         if hedge_diff > 0:
                             # 需要買進避險資產
+                            hedge_trade_step = self._create_trade_step('動態倉位增持避險資產', state, [
+                                {'name': '目標避險資產比例', 'value': hedge_target_pct},
+                                {'name': '當前避險資產比例', 'value': current_hedge_pct}
+                            ])
                             orders.append({
                                 'action': 'buy',
                                 'ticker': self.hedge_ticker,
                                 'percent': hedge_diff,
-                                'target_position_pct': hedge_target_pct
+                                'target_position_pct': hedge_target_pct,
+                                'is_hedge_buy': True,
+                                'trade_step': hedge_trade_step
                             })
                             state['hedge_state'] = True
                         else:
                             # 需要賣出避險資產（如果持倉過多）
+                            hedge_trade_step = self._create_trade_step('動態倉位減持避險資產', state, [
+                                {'name': '目標避險資產比例', 'value': hedge_target_pct},
+                                {'name': '當前避險資產比例', 'value': current_hedge_pct}
+                            ])
                             orders.append({
                                 'action': 'sell',
                                 'ticker': self.hedge_ticker,
                                 'percent': abs(hedge_diff),
-                                'target_position_pct': hedge_target_pct
+                                'target_position_pct': hedge_target_pct,
+                                'trade_step': hedge_trade_step
                             })
                 else:
                     # 首次配置：如果目標倉位 < 100%，買進避險資產
                     if hedge_target_pct > 0:
+                        hedge_trade_step = self._create_trade_step('動態倉位首次配置避險資產', state, [
+                            {'name': '目標避險資產比例', 'value': hedge_target_pct}
+                        ])
                         orders.append({
                             'action': 'buy',
                             'ticker': self.hedge_ticker,
                             'percent': hedge_target_pct,
-                            'target_position_pct': hedge_target_pct
+                            'target_position_pct': hedge_target_pct,
+                            'is_hedge_buy': True,
+                            'trade_step': hedge_trade_step
                         })
                         state['hedge_state'] = True
         
@@ -882,18 +1101,30 @@ class DynamicPositionProportionalStrategy(DynamicPositionStrategy, ProportionalA
         target_bond_pct = 1.0 - target_stock_pct
         
         # 產生調整訂單
+        signal_level = self._get_signal_level(score)
         if positions is None or portfolio_value is None or portfolio_value <= 0:
             if target_stock_pct > 0:
+                trade_step = self._create_trade_step('動態等比例配置首次買進', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
-                    'percent': target_stock_pct
+                    'percent': target_stock_pct,
+                    'trade_step': trade_step
                 })
             if target_bond_pct > 0 and self.hedge_ticker:
+                trade_step = self._create_trade_step('動態等比例配置首次買進', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
-                    'percent': target_bond_pct
+                    'percent': target_bond_pct,
+                    'is_hedge_buy': True,
+                    'trade_step': trade_step
                 })
         else:
             current_stock_value = positions.get(self.stock_ticker, 0) * price_dict.get(self.stock_ticker, 0)
@@ -909,30 +1140,55 @@ class DynamicPositionProportionalStrategy(DynamicPositionStrategy, ProportionalA
             
             if abs(stock_diff) > threshold:
                 if stock_diff > 0:
+                    trade_step = self._create_trade_step('動態等比例配置增持股票', state, [
+                        {'name': '目標股票比例', 'value': target_stock_pct},
+                        {'name': '當前股票比例', 'value': current_stock_pct},
+                        {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                    ])
                     orders.append({
                         'action': 'buy',
                         'ticker': self.stock_ticker,
-                        'percent': stock_diff
+                        'percent': stock_diff,
+                        'trade_step': trade_step
                     })
                 else:
+                    trade_step = self._create_trade_step('動態等比例配置減持股票', state, [
+                        {'name': '目標股票比例', 'value': target_stock_pct},
+                        {'name': '當前股票比例', 'value': current_stock_pct},
+                        {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                    ])
                     orders.append({
                         'action': 'sell',
                         'ticker': self.stock_ticker,
-                        'percent': abs(stock_diff)
+                        'percent': abs(stock_diff),
+                        'trade_step': trade_step
                     })
             
             if self.hedge_ticker and abs(bond_diff) > threshold:
                 if bond_diff > 0:
+                    trade_step = self._create_trade_step('動態等比例配置增持債券', state, [
+                        {'name': '目標債券比例', 'value': target_bond_pct},
+                        {'name': '當前債券比例', 'value': current_bond_pct},
+                        {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                    ])
                     orders.append({
                         'action': 'buy',
                         'ticker': self.hedge_ticker,
-                        'percent': bond_diff
+                        'percent': bond_diff,
+                        'is_hedge_buy': True,
+                        'trade_step': trade_step
                     })
                 else:
+                    trade_step = self._create_trade_step('動態等比例配置減持債券', state, [
+                        {'name': '目標債券比例', 'value': target_bond_pct},
+                        {'name': '當前債券比例', 'value': current_bond_pct},
+                        {'name': '燈號等級', 'value': signal_level if signal_level else '未知'}
+                    ])
                     orders.append({
                         'action': 'sell',
                         'ticker': self.hedge_ticker,
-                        'percent': abs(bond_diff)
+                        'percent': abs(bond_diff),
+                        'trade_step': trade_step
                     })
         
         return orders
@@ -997,18 +1253,29 @@ class MultiplierAllocationStrategy(CycleStrategy):
         # 如果沒有持倉資訊，首次配置
         if positions is None or portfolio_value is None or portfolio_value <= 0:
             if target_stock_pct > 0:
+                trade_step = self._create_trade_step('倍數放大首次配置', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
                     'percent': target_stock_pct,
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
             if target_bond_pct > 0 and self.hedge_ticker:
+                trade_step = self._create_trade_step('倍數放大首次配置', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
                     'percent': target_bond_pct,
-                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_bond_pct,
+                    'is_hedge_buy': True,
+                    'trade_step': trade_step
                 })
             return orders
         
@@ -1028,34 +1295,59 @@ class MultiplierAllocationStrategy(CycleStrategy):
         # 產生調整訂單
         if abs(stock_diff) > threshold:
             if stock_diff > 0:
+                trade_step = self._create_trade_step('倍數放大增持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
                     'percent': stock_diff,
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
             else:
+                trade_step = self._create_trade_step('倍數放大減持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': abs(stock_diff),
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
         
         if self.hedge_ticker and abs(bond_diff) > threshold:
             if bond_diff > 0:
+                trade_step = self._create_trade_step('倍數放大增持債券', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '當前債券比例', 'value': current_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.hedge_ticker,
                     'percent': bond_diff,
-                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_bond_pct,
+                    'is_hedge_buy': True,
+                    'trade_step': trade_step
                 })
             else:
+                trade_step = self._create_trade_step('倍數放大減持債券', state, [
+                    {'name': '目標債券比例', 'value': target_bond_pct},
+                    {'name': '當前債券比例', 'value': current_bond_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.hedge_ticker,
                     'percent': abs(bond_diff),
-                    'target_position_pct': target_bond_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_bond_pct,
+                    'trade_step': trade_step
                 })
         
         return orders
@@ -1093,11 +1385,16 @@ class MultiplierAllocationCashStrategy(MultiplierAllocationStrategy):
         # 如果沒有持倉資訊，首次配置
         if positions is None or portfolio_value is None or portfolio_value <= 0:
             if target_stock_pct > 0:
+                trade_step = self._create_trade_step('倍數放大現金策略首次買進', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
                     'percent': target_stock_pct,
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
             return orders
         
@@ -1113,18 +1410,30 @@ class MultiplierAllocationCashStrategy(MultiplierAllocationStrategy):
         # 產生調整訂單
         if abs(stock_diff) > threshold:
             if stock_diff > 0:
+                trade_step = self._create_trade_step('倍數放大現金策略增持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'buy',
                     'ticker': self.stock_ticker,
                     'percent': stock_diff,
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
             else:
+                trade_step = self._create_trade_step('倍數放大現金策略減持股票', state, [
+                    {'name': '目標股票比例', 'value': target_stock_pct},
+                    {'name': '當前股票比例', 'value': current_stock_pct},
+                    {'name': '燈號等級', 'value': signal_level}
+                ])
                 orders.append({
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': abs(stock_diff),
-                    'target_position_pct': target_stock_pct  # 新增：目標持倉比例
+                    'target_position_pct': target_stock_pct,
+                    'trade_step': trade_step
                 })
         
         return orders
