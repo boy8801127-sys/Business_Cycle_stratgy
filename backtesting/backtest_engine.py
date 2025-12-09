@@ -296,6 +296,9 @@ class BacktestEngine:
                         
                         if not prev_was_blue and current_is_blue:
                             # 觸發買進：在發布後的5個交易日執行
+                            # 重置賣出標記（如果有的話）
+                            need_sell_next_month = False
+                            sell_month = None
                             need_buy_after_publish = True
                             buy_start_date = date  # 從發布日期開始
                             buy_signal_year = data_year
@@ -308,6 +311,9 @@ class BacktestEngine:
                         
                         if not prev_was_red and current_is_red:
                             # 觸發賣出：在隔月的最後5個交易日執行
+                            # 重置買進標記（如果有的話）
+                            need_buy_after_publish = False
+                            buy_start_date = None
                             need_sell_next_month = True
                             # 計算隔月（發布月份的下一個月）
                             if isinstance(publish_date, pd.Timestamp):
@@ -400,6 +406,11 @@ class BacktestEngine:
                         buy_split_day = buy_window.index(date) + 1  # 1-5
                     except ValueError:
                         buy_split_day = None
+                else:
+                    # 買進窗口已結束，重置標記
+                    if buy_window and date > buy_window[-1]:
+                        need_buy_after_publish = False
+                        buy_start_date = None
             
             # 計算賣出窗口（隔月的最後5個交易日）
             should_sell_in_split = False
@@ -430,6 +441,18 @@ class BacktestEngine:
                         sell_split_day = sell_window.index(date) + 1  # 1-5
                     except ValueError:
                         sell_split_day = None
+                else:
+                    # 賣出窗口已結束，重置標記
+                    if sell_month is not None:
+                        # 檢查是否已經過了賣出月份（考慮跨月情況）
+                        sell_window_end_date = sell_window[-1] if sell_window else None
+                        if sell_window_end_date and date > sell_window_end_date:
+                            need_sell_next_month = False
+                            sell_month = None
+                        elif (date.year, date.month) > sell_month:
+                            # 如果當前日期已經超過賣出月份，也重置
+                            need_sell_next_month = False
+                            sell_month = None
             
             # 檢查是否在前5個或第四個禮拜的交易日內（用於其他策略的分批執行）
             is_in_first_five_days = date in month_first_five_days.get(current_month_key, [])

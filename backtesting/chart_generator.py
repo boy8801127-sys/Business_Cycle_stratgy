@@ -288,7 +288,7 @@ class ChartGenerator:
         fig.add_trace(
             go.Scatter(x=volatilities, y=annualized_returns, mode='markers+text',
                       text=strategy_names, textposition='top center',
-                      marker=dict(size=10, color=range(len(strategy_names)), colorscale='Viridis'),
+                      marker=dict(size=10, color=list(range(len(strategy_names))), colorscale='Viridis'),
                       name='風險報酬'),
             row=2, col=2
         )

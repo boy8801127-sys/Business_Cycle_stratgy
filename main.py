@@ -592,7 +592,11 @@ def run_backtest():
                 'final_value': results.get('final_value', capital),
                 'initial_capital': capital,
                 'final_positions': results.get('final_positions', {}),  # 新增
-                'final_cash': results.get('final_cash', 0)  # 新增
+                'final_cash': results.get('final_cash', 0),  # 新增
+                # 新增：每日報酬率數據
+                'dates': results.get('dates', []),
+                'portfolio_value': results.get('portfolio_value', []),
+                'returns': results.get('returns', [])
             })
         
         # 輸出結果到 CSV
@@ -731,7 +735,7 @@ def diagnose_strategy(all_results, strategy_name):
     
     # 輸出詳細交易記錄到CSV（如果交易次數合理）
     if len(trades) > 0 and len(trades) <= 500:
-        output_dir = '策略結果'
+        output_dir = 'results'
         if not os.path.exists(output_dir):
             os.makedirs(output_dir)
         
@@ -752,7 +756,7 @@ def export_results_to_csv(all_results, start_date, end_date):
     import os
     
     # 確保輸出目錄存在
-    output_dir = '策略結果'
+    output_dir = 'results'
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
@@ -833,6 +837,28 @@ def export_results_to_csv(all_results, start_date, end_date):
             
             trades_df.to_csv(trades_filename, index=False, encoding='utf-8-sig')
             print(f"[Info] {result['strategy_name']} 持倉變動詳細列表已輸出至: {trades_filename}")
+    
+    # 同時輸出每日報酬率（如果有的話）
+    for result in all_results:
+        if result.get('dates') and result.get('portfolio_value') and result.get('returns'):
+            # 建立每日報酬率 DataFrame
+            daily_returns_data = {
+                '日期': [d.strftime('%Y-%m-%d') if hasattr(d, 'strftime') else str(d) for d in result['dates']],
+                '投資組合價值': [round(v, 2) for v in result['portfolio_value']],
+                '每日報酬率(%)': [round(r * 100, 4) for r in result['returns']],  # 轉換為百分比
+                '累積報酬率(%)': []
+            }
+            
+            # 計算累積報酬率
+            initial_value = result['portfolio_value'][0] if result['portfolio_value'] else result.get('initial_capital', 1000000)
+            for pv in result['portfolio_value']:
+                cumulative_return = (pv / initial_value - 1) * 100
+                daily_returns_data['累積報酬率(%)'].append(round(cumulative_return, 2))
+            
+            daily_returns_df = pd.DataFrame(daily_returns_data)
+            daily_returns_filename = os.path.join(output_dir, f'daily_returns_{result["strategy_name"]}_{timestamp}.csv')
+            daily_returns_df.to_csv(daily_returns_filename, index=False, encoding='utf-8-sig')
+            print(f"[Info] {result['strategy_name']} 每日報酬率已輸出至: {daily_returns_filename}")
 
 
 def generate_report():
@@ -841,40 +867,53 @@ def generate_report():
     print("-" * 60)
     
     # 檢查是否有回測結果
-    results_dir = "策略結果"
+    results_dir = "results"
     if not os.path.exists(results_dir):
-        print("[Error] 找不到策略結果目錄，請先執行回測")
+        print("[Error] 找不到回測結果目錄，請先執行回測")
         return
     
     # 讀取回測結果
     print("\n[步驟 1] 讀取回測結果...")
     all_results = {}
     
-    # 尋找最新的回測結果目錄
-    result_dirs = [d for d in os.listdir(results_dir) if os.path.isdir(os.path.join(results_dir, d))]
+    # 尋找最新的回測結果目錄（排除 "charts" 目錄）
+    result_dirs = [d for d in os.listdir(results_dir) 
+                   if os.path.isdir(os.path.join(results_dir, d)) and d != 'charts']
+    
+    # 如果沒有子目錄，直接在根目錄尋找 CSV
     if not result_dirs:
-        print("[Error] 找不到回測結果目錄")
-        return
-    
-    # 讓用戶選擇要使用的回測結果
-    print("\n可用的回測結果：")
-    for i, dir_name in enumerate(result_dirs, 1):
-        print(f"  {i}. {dir_name}")
-    
-    choice = input("\n請選擇要使用的回測結果（輸入編號，預設使用最新的）: ").strip()
-    if choice and choice.isdigit():
-        selected_dir = result_dirs[int(choice) - 1]
+        # CSV 檔案直接在根目錄
+        result_path = results_dir
+        print("[Info] 在回測結果根目錄尋找 CSV 檔案")
     else:
-        # 使用最新的（按修改時間排序）
-        selected_dir = max(result_dirs, key=lambda d: os.path.getmtime(os.path.join(results_dir, d)))
-        print(f"[Info] 使用最新的回測結果：{selected_dir}")
+        # 讓用戶選擇要使用的回測結果
+        print("\n可用的回測結果：")
+        for i, dir_name in enumerate(result_dirs, 1):
+            print(f"  {i}. {dir_name}")
+        print(f"  {len(result_dirs) + 1}. 使用根目錄的 CSV 檔案")
+        
+        choice = input("\n請選擇要使用的回測結果（輸入編號，預設使用最新的）: ").strip()
+        if choice and choice.isdigit():
+            choice_num = int(choice)
+            if choice_num == len(result_dirs) + 1:
+                result_path = results_dir
+            else:
+                selected_dir = result_dirs[choice_num - 1]
+                result_path = os.path.join(results_dir, selected_dir)
+        else:
+            # 使用最新的（按修改時間排序）
+            selected_dir = max(result_dirs, key=lambda d: os.path.getmtime(os.path.join(results_dir, d)))
+            print(f"[Info] 使用最新的回測結果：{selected_dir}")
+            result_path = os.path.join(results_dir, selected_dir)
     
-    result_path = os.path.join(results_dir, selected_dir)
+    # 讀取所有策略的 CSV 檔案（修正檔案命名模式：支援 position_changes_*.csv）
+    csv_files = [f for f in os.listdir(result_path) 
+                 if f.endswith('.csv') and ('position_changes_' in f or '_trades.csv' in f)]
     
-    # 讀取所有策略的 CSV 檔案
-    csv_files = [f for f in os.listdir(result_path) if f.endswith('_trades.csv')]
     if not csv_files:
         print("[Error] 找不到交易記錄 CSV 檔案")
+        print(f"[Info] 在目錄 {result_path} 中尋找檔案")
+        print(f"[Info] 預期的檔案格式：position_changes_*.csv 或 *_trades.csv")
         return
     
     print(f"[Info] 找到 {len(csv_files)} 個策略的交易記錄")
@@ -887,8 +926,20 @@ def generate_report():
     stock_tickers = ['006208', '00865B', '2330']  # 常用的標的
     price_data_list = []
     for ticker in stock_tickers:
-        df = db_manager.get_stock_data(ticker, '2020-01-01', datetime.now().strftime('%Y-%m-%d'))
+        # 使用與回測相同的格式讀取股價資料
+        start_date_str = '20200101'
+        end_date_str = datetime.now().strftime('%Y%m%d')
+        
+        # 先從上市市場查詢
+        df = db_manager.get_stock_price(ticker=ticker, start_date=start_date_str, end_date=end_date_str)
+        if df.empty:
+            # 如果上市市場沒有，再從上櫃市場查詢
+            df = db_manager.get_otc_stock_price(ticker=ticker, start_date=start_date_str, end_date=end_date_str)
+        
         if not df.empty:
+            # 確保有 ticker 欄位
+            if 'ticker' not in df.columns:
+                df['ticker'] = ticker
             price_data_list.append(df)
     
     if not price_data_list:
@@ -896,6 +947,14 @@ def generate_report():
         return
     
     price_data = pd.concat(price_data_list, ignore_index=True)
+    
+    # 確保日期格式正確
+    if 'date' in price_data.columns:
+        # 如果 date 是字串格式 YYYYMMDD，轉換為 date 對象
+        if isinstance(price_data['date'].iloc[0], str) and len(str(price_data['date'].iloc[0])) == 8:
+            price_data['date'] = pd.to_datetime(price_data['date'], format='%Y%m%d').dt.date
+        else:
+            price_data['date'] = pd.to_datetime(price_data['date']).dt.date
     
     # 讀取景氣燈號資料
     cycle_collector = CycleDataCollector('business_cycle/景氣指標與燈號.csv')
@@ -915,8 +974,185 @@ def generate_report():
     
     # 讀取回測結果（從 CSV 重建結果字典）
     print("\n[步驟 3] 重建回測結果...")
-    # 這裡簡化處理，實際應該從 CSV 重建完整的結果字典
-    # 由於時間關係，我們先實作基本的圖表生成功能
+    
+    # 讀取 backtest_results_*.csv 獲取策略績效指標
+    backtest_csv_files = [f for f in os.listdir(result_path) if f.startswith('backtest_results_')]
+    if not backtest_csv_files:
+        print("[Error] 找不到回測結果 CSV 檔案（backtest_results_*.csv）")
+        return
+    
+    # 使用最新的回測結果 CSV
+    latest_backtest_csv = max(backtest_csv_files, key=lambda f: os.path.getmtime(os.path.join(result_path, f)))
+    print(f"[Info] 讀取回測結果檔案：{latest_backtest_csv}")
+    
+    df_results = pd.read_csv(os.path.join(result_path, latest_backtest_csv), encoding='utf-8-sig')
+    
+    # 為每個策略建立結果字典
+    for _, row in df_results.iterrows():
+        strategy_name = row['策略名稱']
+        
+        # 讀取對應的交易記錄 CSV
+        position_csv = f"position_changes_{strategy_name}_{latest_backtest_csv.replace('backtest_results_', '')}"
+        position_csv_path = os.path.join(result_path, position_csv)
+        
+        trades = []
+        dates = []
+        
+        if os.path.exists(position_csv_path):
+            # 讀取交易記錄
+            df_trades = pd.read_csv(position_csv_path, encoding='utf-8-sig')
+            
+            # 轉換日期格式
+            if '日期' in df_trades.columns:
+                df_trades['日期'] = pd.to_datetime(df_trades['日期']).dt.date
+                dates = sorted(df_trades['日期'].unique().tolist())
+            
+            # 轉換交易記錄為字典列表
+            trades = df_trades.to_dict('records')
+        
+        # 解析數值（處理可能包含逗號、引號和百分號的格式）
+        def parse_value(value):
+            if pd.isna(value):
+                return 0.0
+            if isinstance(value, str):
+                # 移除引號、逗號和百分號
+                value = value.replace('"', '').replace(',', '').replace('%', '').strip()
+            try:
+                return float(value)
+            except:
+                return 0.0
+        
+        # 建立結果字典
+        all_results[strategy_name] = {
+            'metrics': {
+                'total_return': parse_value(row.get('累積報酬率(%)', 0)) / 100,
+                'annualized_return': parse_value(row.get('年化報酬率(%)', 0)) / 100,
+                'sharpe_ratio': parse_value(row.get('夏普值', 0)),
+                'max_drawdown': parse_value(row.get('最大回撤(%)', 0)) / 100,
+                'volatility': parse_value(row.get('波動度(%)', 0)) / 100,
+                'total_trades': int(parse_value(row.get('總交易次數', 0))),
+                'turnover_rate': parse_value(row.get('換手率(%)', 0)),
+                'avg_holding_period': parse_value(row.get('平均持倉期間(天)', 0)),
+                'win_rate': parse_value(row.get('勝率(%)', 0)) / 100
+            },
+            'trades': trades,
+            'dates': dates,
+            'portfolio_value': []  # 需要從交易記錄計算，暫時為空
+        }
+        
+        print(f"[Info] 已載入策略：{strategy_name}（{len(trades)} 筆交易記錄）")
+    
+    print(f"[Info] 共載入 {len(all_results)} 個策略的回測結果")
+    
+    # 計算投資組合價值歷史（簡化版本：從交易記錄和股價資料計算）
+    print("\n[步驟 3.5] 計算投資組合價值歷史...")
+    for strategy_name, result in all_results.items():
+        if not result['trades'] or not result['dates']:
+            continue
+        
+        # 從交易記錄計算投資組合價值
+        # 這是一個簡化版本，實際應該模擬完整的回測過程
+        # 這裡我們使用初始資金和最終資產總額來估算
+        initial_capital_str = df_results[df_results['策略名稱'] == strategy_name]['初始資金'].iloc[0]
+        final_value_str = df_results[df_results['策略名稱'] == strategy_name]['最終資產總額'].iloc[0]
+        
+        initial_capital = parse_value(initial_capital_str)
+        final_value = parse_value(final_value_str)
+        
+        # 計算投資組合價值歷史
+        # 方法：從交易記錄和股價資料重建投資組合價值
+        if result['dates'] and result['trades']:
+            try:
+                # 建立日期到價格的映射
+                price_dict_by_date = {}
+                for ticker in stock_tickers:
+                    ticker_data = price_data[price_data['ticker'] == ticker].copy()
+                    if not ticker_data.empty:
+                        ticker_data['date'] = pd.to_datetime(ticker_data['date']).dt.date
+                        for _, row in ticker_data.iterrows():
+                            date = row['date']
+                            if date not in price_dict_by_date:
+                                price_dict_by_date[date] = {}
+                            price_dict_by_date[date][ticker] = row['close']
+                
+                # 模擬投資組合價值變化
+                portfolio_values = []
+                positions = {}  # {ticker: shares}
+                cash = initial_capital
+                
+                # 按日期排序交易記錄
+                sorted_trades = sorted(result['trades'], key=lambda t: t.get('日期', datetime.min.date()))
+                
+                # 建立所有日期的完整列表（從第一個交易日到最後一個交易日）
+                if result['dates']:
+                    all_dates = sorted(result['dates'])
+                    # 如果交易記錄中有更多日期，也要包含
+                    trade_dates = [t.get('日期') for t in sorted_trades if t.get('日期')]
+                    all_dates = sorted(set(all_dates + [d for d in trade_dates if d]))
+                    
+                    trade_idx = 0
+                    for date in all_dates:
+                        # 處理這一天的所有交易
+                        while trade_idx < len(sorted_trades):
+                            trade = sorted_trades[trade_idx]
+                            trade_date = trade.get('日期')
+                            if trade_date and trade_date <= date:
+                                # 執行交易
+                                ticker = trade.get('標的代號', '')
+                                action = trade.get('動作', '')
+                                
+                                if action == '買進':
+                                    shares = trade.get('股數', 0)
+                                    price = trade.get('價格', 0)
+                                    total_cost = trade.get('總成本', shares * price)
+                                    if total_cost <= cash:
+                                        cash -= total_cost
+                                        positions[ticker] = positions.get(ticker, 0) + shares
+                                elif action == '賣出':
+                                    shares = trade.get('股數', 0)
+                                    price = trade.get('價格', 0)
+                                    net_proceeds = trade.get('淨收入', shares * price * 0.9967)  # 扣除手續費和稅
+                                    if ticker in positions:
+                                        positions[ticker] = max(0, positions[ticker] - shares)
+                                        if positions[ticker] == 0:
+                                            del positions[ticker]
+                                    cash += net_proceeds
+                                
+                                trade_idx += 1
+                            else:
+                                break
+                        
+                        # 計算當天的投資組合價值
+                        portfolio_value = cash
+                        if date in price_dict_by_date:
+                            for ticker, shares in positions.items():
+                                if ticker in price_dict_by_date[date]:
+                                    portfolio_value += shares * price_dict_by_date[date][ticker]
+                        portfolio_values.append(portfolio_value)
+                    
+                    result['portfolio_value'] = portfolio_values
+                    result['dates'] = all_dates
+                else:
+                    result['portfolio_value'] = [initial_capital]
+            except Exception as e:
+                print(f"[Warning] 計算 {strategy_name} 投資組合價值時發生錯誤：{e}")
+                # 使用簡化版本
+                if result['dates']:
+                    num_days = len(result['dates'])
+                    if num_days > 1:
+                        daily_return = (final_value / initial_capital) ** (1.0 / num_days) - 1
+                        portfolio_values = []
+                        current_value = initial_capital
+                        for _ in result['dates']:
+                            portfolio_values.append(current_value)
+                            current_value *= (1 + daily_return)
+                        result['portfolio_value'] = portfolio_values
+                    else:
+                        result['portfolio_value'] = [initial_capital, final_value]
+                else:
+                    result['portfolio_value'] = [initial_capital]
+        else:
+            result['portfolio_value'] = [initial_capital]
     
     # 選擇輸出格式
     print("\n請選擇輸出格式：")
@@ -1074,36 +1310,70 @@ def validate_data():
 def main():
     """主程式"""
     while True:
-        print_menu()
-        choice = input("\n請選擇功能（0-10）: ").strip()
-        
-        if choice == '0':
-            print("\n[Info] 離開程式")
+        try:
+            print_menu()
+            choice = input("\n請選擇功能（0-10）: ").strip()
+            
+            # 過濾掉可能的 PowerShell 自動執行腳本或路徑
+            # 如果輸入看起來像腳本路徑或命令，視為無效
+            if not choice or len(choice) > 10:
+                # 選項應該是 0-10，長度不應該超過 2 個字符
+                if len(choice) > 10:
+                    print("[Error] 無效的選項，請重新選擇")
+                    continue
+                # 空輸入時跳過
+                if not choice:
+                    continue
+            
+            # 檢查是否包含路徑分隔符或腳本副檔名（可能是 PowerShell 自動執行）
+            if '\\' in choice or '/' in choice or '.ps1' in choice.lower() or '.bat' in choice.lower() or choice.startswith('&'):
+                print("[Error] 無效的選項，請重新選擇")
+                print("[Info] 請直接輸入數字（0-10），不要輸入路徑或命令")
+                continue
+            
+            # 只接受數字
+            if not choice.isdigit():
+                print("[Error] 無效的選項，請輸入數字（0-10）")
+                continue
+            
+            if choice == '0':
+                print("\n[Info] 離開程式")
+                break
+            elif choice == '1':
+                load_cycle_data()
+            elif choice == '2':
+                collect_stock_data()
+            elif choice == '3':
+                run_backtest()
+            elif choice == '4':
+                generate_report()
+            elif choice == '5':
+                batch_update()
+            elif choice == '6':
+                validate_data()
+            elif choice == '7':
+                check_data_integrity()
+            elif choice == '8':
+                fill_zero_price_data()
+            elif choice == '9':
+                delete_warrants_from_otc()
+            elif choice == '10':
+                update_project_docs()
+            else:
+                print("[Error] 無效的選項，請輸入 0-10 之間的數字")
+            
+            input("\n按 Enter 繼續...")
+        except (EOFError, KeyboardInterrupt):
+            print("\n\n[Info] 程式已中斷")
             break
-        elif choice == '1':
-            load_cycle_data()
-        elif choice == '2':
-            collect_stock_data()
-        elif choice == '3':
-            run_backtest()
-        elif choice == '4':
-            generate_report()
-        elif choice == '5':
-            batch_update()
-        elif choice == '6':
-            validate_data()
-        elif choice == '7':
-            check_data_integrity()
-        elif choice == '8':
-            fill_zero_price_data()
-        elif choice == '9':
-            delete_warrants_from_otc()
-        elif choice == '10':
-            update_project_docs()
-        else:
-            print("[Error] 無效的選項，請重新選擇")
-        
-        input("\n按 Enter 繼續...")
+        except Exception as e:
+            print(f"\n[Error] 發生未預期的錯誤: {e}")
+            import traceback
+            traceback.print_exc()
+            try:
+                input("\n按 Enter 繼續...")
+            except:
+                break
 
 
 def check_data_integrity():
