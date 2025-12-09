@@ -237,8 +237,6 @@ class BacktestEngine:
         
         # 每日迭代
         for i, date in enumerate(trading_days):
-            self.dates.append(date)
-            
             # 取得當日景氣燈號資料
             score = None
             publish_date = None
@@ -294,7 +292,13 @@ class BacktestEngine:
                         prev_was_blue = 9 <= prev_published_score <= 16
                         current_is_blue = 9 <= score <= 16
                         
+                        # 添加調試日誌
+                        if date.year >= 2021:  # 只記錄 2021 年後的日誌
+                            print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 信號檢測: prev_score={prev_published_score}, current_score={score}, prev_was_blue={prev_was_blue}, current_is_blue={current_is_blue}")
+                        
                         if not prev_was_blue and current_is_blue:
+                            # 添加調試日誌
+                            print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 觸發藍燈買進信號！設置 need_buy_after_publish=True")
                             # 觸發買進：在發布後的5個交易日執行
                             # 重置賣出標記（如果有的話）
                             need_sell_next_month = False
@@ -380,6 +384,9 @@ class BacktestEngine:
                 # 如果沒有股價資料，跳過
                 continue
             
+            # 確認有股價資料後，才添加日期（確保 dates、portfolio_value、returns 長度一致）
+            self.dates.append(date)
+            
             # 建立價格字典
             price_dict = {}
             for _, row in date_price_data.iterrows():
@@ -406,11 +413,19 @@ class BacktestEngine:
                         buy_split_day = buy_window.index(date) + 1  # 1-5
                     except ValueError:
                         buy_split_day = None
+                    # 添加調試日誌
+                    if date.year >= 2021:
+                        print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 在買進窗口內，should_buy_in_split=True, buy_split_day={buy_split_day}")
                 else:
                     # 買進窗口已結束，重置標記
                     if buy_window and date > buy_window[-1]:
+                        # 添加調試日誌
+                        if date.year >= 2021:
+                            print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 買進窗口已結束（窗口結束日期={buy_window[-1]}），重置 need_buy_after_publish=False")
                         need_buy_after_publish = False
                         buy_start_date = None
+                    elif date.year >= 2021 and buy_window:
+                        print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 不在買進窗口內，窗口結束日期={buy_window[-1]}")
             
             # 計算賣出窗口（隔月的最後5個交易日）
             should_sell_in_split = False
@@ -491,19 +506,35 @@ class BacktestEngine:
             portfolio_value_before = self._calculate_portfolio_value(date, price_dict)
             # 保存策略狀態以供交易記錄使用（濾網參數等）
             self._current_strategy_state = strategy_state.copy()
+            # 添加調試日誌
+            if date.year >= 2021 and (need_buy_this_month or need_sell_this_month):
+                print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 策略執行前: need_buy_this_month={need_buy_this_month}, need_sell_this_month={need_sell_this_month}, need_buy_after_publish={need_buy_after_publish}, need_sell_next_month={need_sell_next_month}, should_buy_in_split={should_buy_in_split}, should_sell_in_split={should_sell_in_split}, state['state']={strategy_state.get('state', 'None')}, score={strategy_state.get('score', 'None')}")
             orders = strategy_func(strategy_state, date, price_dict, self.positions, portfolio_value_before)
+            # 添加調試日誌
+            if date.year >= 2021 and (need_buy_this_month or need_sell_this_month):
+                print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 策略執行後: 產生 {len(orders)} 筆訂單, state['state']={strategy_state.get('state', 'None')}")
             
             # 處理分批執行和策略產生的訂單
             orders_to_execute = []
             
             # 檢查是否有待執行的分批訂單（基本策略）
-            # 買進分批：從第一個交易日開始的5天內
+            # 買進分批：從發布日期開始的5個交易日內
             for ticker in list(buy_split_orders.keys()):
-                if ticker in price_dict and is_in_first_five_days:
+                if ticker in price_dict and should_buy_in_split:
                     split_order = buy_split_orders[ticker]
                     if split_order['days_remaining'] > 0:
                         # 計算今天要執行的比例
-                        total_days = len(month_first_five_days.get(current_month_key, []))
+                        # 使用買進窗口的總天數
+                        if buy_start_date is not None:
+                            future_days = [d for d in trading_days if d >= buy_start_date]
+                            if len(future_days) >= 5:
+                                buy_window = future_days[:5]
+                            else:
+                                buy_window = future_days
+                            total_days = len(buy_window)
+                        else:
+                            total_days = len(month_first_five_days.get(current_month_key, []))
+                        
                         if total_days > 0:
                             # 計算今天要執行的比例
                             if split_order['days_remaining'] == 1:
@@ -535,7 +566,7 @@ class BacktestEngine:
             
             # 賣出分批：在第四個禮拜的5個交易日內
             for ticker in list(sell_split_orders.keys()):
-                if ticker in price_dict and ticker in self.positions and self.positions[ticker] > 0 and is_in_fourth_week_five_days:
+                if ticker in price_dict and ticker in self.positions and self.positions[ticker] > 0 and should_sell_in_split:
                     split_order = sell_split_orders[ticker]
                     if split_order['days_remaining'] > 0:
                         # 計算今天要執行的比例
@@ -583,141 +614,165 @@ class BacktestEngine:
                     trigger_hedge_buy = order.get('trigger_hedge_buy', False)
                     is_hedge_sell = order.get('is_hedge_sell', False)
                     
-                    # 檢查是否為基本策略的買賣信號（需要分批執行）
-                    # 基本策略：藍燈買進（percent=1.0）或紅燈賣出（percent=1.0）
-                    if need_buy_this_month and action == 'buy' and percent >= 0.9:
-                        # 這是基本策略的買進信號，需要分批執行
-                        if ticker not in buy_split_orders and is_in_first_five_days:
-                            # 初始化分批訂單（只在分批時間窗口內的第一天）
-                            total_days = len(month_first_five_days.get(current_month_key, []))
-                            if total_days == 0:
-                                total_days = 5  # 預設5天
-                            buy_split_orders[ticker] = {
-                                'total_percent': percent,
-                                'executed_percent': 0.0,
-                                'days_remaining': total_days,
-                                'start_date': date,
-                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
-                            }
-                        # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
-                        if ticker not in buy_split_orders or not is_in_first_five_days:
+                    # 檢查訂單是否需要分批執行（根據 split_execution 標記）
+                    if order.get('split_execution', False):
+                        if action == 'buy' and should_buy_in_split:
+                            # 這是需要分批執行的買進訂單
+                            if ticker not in buy_split_orders:
+                                # 初始化分批訂單（只在分批時間窗口內的第一天）
+                                if buy_start_date is not None:
+                                    future_days = [d for d in trading_days if d >= buy_start_date]
+                                    if len(future_days) >= 5:
+                                        buy_window = future_days[:5]
+                                    else:
+                                        buy_window = future_days
+                                    total_days = len(buy_window)
+                                else:
+                                    total_days = len(month_first_five_days.get(current_month_key, []))
+                                
+                                if total_days == 0:
+                                    total_days = 5  # 預設5天
+                                
+                                buy_split_orders[ticker] = {
+                                    'total_percent': percent,
+                                    'executed_percent': 0.0,
+                                    'days_remaining': total_days,
+                                    'start_date': date,
+                                    'trade_step': order.get('trade_step')  # 保存原始交易步驟
+                                }
+                            # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                            if ticker not in buy_split_orders or not should_buy_in_split:
+                                continue
+                            # 分批執行邏輯在上面已經處理，這裡跳過
                             continue
-                        # 分批執行邏輯在上面已經處理，這裡跳過
-                        continue
                     
-                    # 處理避險資產的賣出（在藍燈買進股票時）
-                    if need_buy_this_month and action == 'sell' and percent >= 0.9 and is_hedge_sell:
-                        # 避險資產的賣出也要分批執行
-                        if ticker not in sell_split_orders and is_in_first_five_days:
-                            total_days = len(month_first_five_days.get(current_month_key, []))
-                            if total_days == 0:
-                                total_days = 5
-                            sell_split_orders[ticker] = {
-                                'total_percent': percent,
-                                'executed_percent': 0.0,
-                                'days_remaining': total_days,
-                                'start_date': date,
-                                'is_hedge_sell': True,
-                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
-                            }
-                        if ticker not in sell_split_orders or not is_in_first_five_days:
+                        elif action == 'sell' and is_hedge_sell and should_buy_in_split:
+                            # 避險資產的賣出也要分批執行（在藍燈買進股票時）
+                            if ticker not in sell_split_orders:
+                                # 初始化分批訂單（只在分批時間窗口內的第一天）
+                                if buy_start_date is not None:
+                                    future_days = [d for d in trading_days if d >= buy_start_date]
+                                    if len(future_days) >= 5:
+                                        buy_window = future_days[:5]
+                                    else:
+                                        buy_window = future_days
+                                    total_days = len(buy_window)
+                                else:
+                                    total_days = len(month_first_five_days.get(current_month_key, []))
+                                
+                                if total_days == 0:
+                                    total_days = 5  # 預設5天
+                                
+                                sell_split_orders[ticker] = {
+                                    'total_percent': percent,
+                                    'executed_percent': 0.0,
+                                    'days_remaining': total_days,
+                                    'start_date': date,
+                                    'is_hedge_sell': True,
+                                    'trade_step': order.get('trade_step')  # 保存原始交易步驟
+                                }
+                            # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                            if ticker not in sell_split_orders or not should_buy_in_split:
+                                continue
+                            # 分批執行邏輯在上面已經處理，這裡跳過
                             continue
-                        continue
                     
-                    # 處理基本策略的賣出信號（需要同步買進避險資產）
-                    if need_sell_this_month and action == 'sell' and percent >= 0.9 and trigger_hedge_buy:
-                        # 股票賣出分批執行（第四個禮拜開始）
-                        if ticker not in sell_split_orders and is_in_fourth_week_five_days:
-                            fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
-                            if date not in fourth_week_days and prev_month_key:
-                                fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
-                            total_days = len(fourth_week_days) if fourth_week_days else 5
-                            
-                            # 同時記錄需要同步買進的避險資產ticker和交易步驟
-                            hedge_ticker = None
-                            hedge_trade_step = None
-                            for o in orders:
-                                if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
-                                    hedge_ticker = o.get('ticker')
-                                    hedge_trade_step = o.get('trade_step')
-                                    break
-                            
-                            sell_split_orders[ticker] = {
-                                'total_percent': percent,
-                                'executed_percent': 0.0,
-                                'days_remaining': total_days,
-                                'start_date': date,
-                                'initial_days': total_days,
-                                'trade_step': order.get('trade_step'),  # 保存原始交易步驟
-                                'hedge_trade_step': hedge_trade_step  # 保存避險資產交易步驟
-                            }
-                            
-                            if hedge_ticker:
-                                sell_split_orders[ticker]['hedge_ticker'] = hedge_ticker
-                        
-                        # 同時初始化避險資產的買進分批訂單（從同一個orders列表中尋找）
-                        hedge_ticker = sell_split_orders.get(ticker, {}).get('hedge_ticker')
-                        if not hedge_ticker:
-                            for o in orders:
-                                if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
-                                    hedge_ticker = o.get('ticker')
-                                    break
-                        
-                        if hedge_ticker and hedge_ticker not in buy_split_orders and is_in_fourth_week_five_days:
-                            fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
-                            if date not in fourth_week_days and prev_month_key:
-                                fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
-                            total_days = len(fourth_week_days) if fourth_week_days else 5
-                            # 從賣出訂單中獲取避險資產的交易步驟
-                            hedge_trade_step = sell_split_orders.get(ticker, {}).get('hedge_trade_step')
-                            if not hedge_trade_step:
-                                # 如果沒有，從原始訂單中尋找
+                        elif action == 'sell' and should_sell_in_split and trigger_hedge_buy:
+                            # 處理基本策略的賣出信號（需要同步買進避險資產）
+                            # 股票賣出分批執行（第四個禮拜開始）
+                            if ticker not in sell_split_orders and should_sell_in_split:
+                                fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
+                                if date not in fourth_week_days and prev_month_key:
+                                    fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
+                                total_days = len(fourth_week_days) if fourth_week_days else 5
+                                
+                                # 同時記錄需要同步買進的避險資產ticker和交易步驟
+                                hedge_ticker = None
+                                hedge_trade_step = None
                                 for o in orders:
                                     if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                        hedge_ticker = o.get('ticker')
                                         hedge_trade_step = o.get('trade_step')
                                         break
+                                
+                                sell_split_orders[ticker] = {
+                                    'total_percent': percent,
+                                    'executed_percent': 0.0,
+                                    'days_remaining': total_days,
+                                    'start_date': date,
+                                    'initial_days': total_days,
+                                    'trade_step': order.get('trade_step'),  # 保存原始交易步驟
+                                    'hedge_trade_step': hedge_trade_step  # 保存避險資產交易步驟
+                                }
+                                
+                                if hedge_ticker:
+                                    sell_split_orders[ticker]['hedge_ticker'] = hedge_ticker
                             
-                            buy_split_orders[hedge_ticker] = {
-                                'total_percent': 1.0,
-                                'executed_percent': 0.0,
-                                'days_remaining': total_days,
-                                'start_date': date,
-                                'is_hedge_buy': True,
-                                'synced_with_sell': ticker,  # 記錄與哪個ticker同步
-                                'initial_days': total_days,
-                                'trade_step': hedge_trade_step  # 保存避險資產交易步驟
-                            }
-                        
-                        if ticker not in sell_split_orders or not is_in_fourth_week_five_days:
+                            # 同時初始化避險資產的買進分批訂單（從同一個orders列表中尋找）
+                            hedge_ticker = sell_split_orders.get(ticker, {}).get('hedge_ticker')
+                            if not hedge_ticker:
+                                for o in orders:
+                                    if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                        hedge_ticker = o.get('ticker')
+                                        break
+                            
+                            if hedge_ticker and hedge_ticker not in buy_split_orders and should_sell_in_split:
+                                fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
+                                if date not in fourth_week_days and prev_month_key:
+                                    fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
+                                total_days = len(fourth_week_days) if fourth_week_days else 5
+                                # 從賣出訂單中獲取避險資產的交易步驟
+                                hedge_trade_step = sell_split_orders.get(ticker, {}).get('hedge_trade_step')
+                                if not hedge_trade_step:
+                                    # 如果沒有，從原始訂單中尋找
+                                    for o in orders:
+                                        if o.get('is_hedge_buy', False) and o.get('is_synced_split', False):
+                                            hedge_trade_step = o.get('trade_step')
+                                            break
+                                
+                                buy_split_orders[hedge_ticker] = {
+                                    'total_percent': 1.0,
+                                    'executed_percent': 0.0,
+                                    'days_remaining': total_days,
+                                    'start_date': date,
+                                    'is_hedge_buy': True,
+                                    'synced_with_sell': ticker,  # 記錄與哪個ticker同步
+                                    'initial_days': total_days,
+                                    'trade_step': hedge_trade_step  # 保存避險資產交易步驟
+                                }
+                            
+                            # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                            if ticker not in sell_split_orders or not should_sell_in_split:
+                                continue
+                            # 分批執行邏輯在上面已經處理，這裡跳過
                             continue
-                        continue
                     
                     # 處理避險資產的同步買進（已經在上面處理，這裡跳過）
                     if is_hedge_buy and is_synced_split:
                         continue
                     
-                    # 處理一般賣出信號（不需要觸發避險資產買進的情況）
-                    if need_sell_this_month and action == 'sell' and percent >= 0.9:
-                        # 這是基本策略的賣出信號，需要分批執行（第四個禮拜開始）
-                        if ticker not in sell_split_orders and is_in_fourth_week_five_days:
-                            # 初始化分批訂單（只在分批時間窗口內的第一天）
-                            fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
-                            if date not in fourth_week_days and prev_month_key:
-                                fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
-                            total_days = len(fourth_week_days) if fourth_week_days else 5
-                            sell_split_orders[ticker] = {
-                                'total_percent': percent,
-                                'executed_percent': 0.0,
-                                'days_remaining': total_days,
-                                'start_date': date,
-                                'initial_days': total_days,
-                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
-                            }
-                        # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
-                        if ticker not in sell_split_orders or not is_in_fourth_week_five_days:
+                        elif action == 'sell' and should_sell_in_split:
+                            # 處理一般賣出信號（不需要觸發避險資產買進的情況）
+                            # 這是基本策略的賣出信號，需要分批執行（第四個禮拜開始）
+                            if ticker not in sell_split_orders and should_sell_in_split:
+                                # 初始化分批訂單（只在分批時間窗口內的第一天）
+                                fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
+                                if date not in fourth_week_days and prev_month_key:
+                                    fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
+                                total_days = len(fourth_week_days) if fourth_week_days else 5
+                                sell_split_orders[ticker] = {
+                                    'total_percent': percent,
+                                    'executed_percent': 0.0,
+                                    'days_remaining': total_days,
+                                    'start_date': date,
+                                    'initial_days': total_days,
+                                    'trade_step': order.get('trade_step')  # 保存原始交易步驟
+                                }
+                            # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                            if ticker not in sell_split_orders or not should_sell_in_split:
+                                continue
+                            # 分批執行邏輯在上面已經處理，這裡跳過
                             continue
-                        # 分批執行邏輯在上面已經處理，這裡跳過
-                        continue
                     
                     # 檢查是否為網格式策略的倉位調整（也需要分批執行）
                     # 網格式策略：倉位調整（percent通常在0.05-0.95之間）

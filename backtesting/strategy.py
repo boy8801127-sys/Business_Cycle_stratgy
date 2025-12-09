@@ -93,32 +93,50 @@ class CycleStrategy:
         should_sell_in_split = state.get('should_sell_in_split', False)
         
         # SCORE <= 16（藍燈）：買進股票，賣出避險資產
-        if score <= 16 and not state.get('state', False):
-            # 只有在分批買進時間窗口內才產生訂單
-            if should_buy_in_split:
-                trade_step = self._create_trade_step('藍燈買進', state)
-                orders.append({
-                    'action': 'buy',
-                    'ticker': self.stock_ticker,
-                    'percent': 1.0,
-                    'trade_step': trade_step
-                })
-                state['state'] = True
-                
-                # 如果有避險資產且持有，則賣出（也要分批）
-                if self.hedge_ticker and state.get('hedge_state', False):
-                    hedge_trade_step = self._create_trade_step('藍燈賣出避險資產', state)
+        if score <= 16:
+            # 如果是首次買進（state['state'] 為 False），或者是在分批買進窗口內
+            if not state.get('state', False) or should_buy_in_split:
+                # 只有在分批買進時間窗口內才產生訂單
+                if should_buy_in_split:
+                    # 添加調試日誌
+                    if date.year >= 2021:
+                        print(f"[DEBUG Strategy] {date.strftime('%Y-%m-%d')} 藍燈買進條件滿足: score={score}, state['state']={state.get('state', False)}, should_buy_in_split={should_buy_in_split}")
+                    trade_step = self._create_trade_step('藍燈買進', state)
                     orders.append({
-                        'action': 'sell',
-                        'ticker': self.hedge_ticker,
+                        'action': 'buy',
+                        'ticker': self.stock_ticker,
                         'percent': 1.0,
-                        'is_hedge_sell': True,  # 標記為避險資產賣出
-                        'trade_step': hedge_trade_step
+                        'split_execution': True,  # 標記需要分批執行
+                        'trade_step': trade_step
                     })
-                    state['hedge_state'] = False
+                    # 只在首次買進時設置 state['state'] = True
+                    # 後續的分批買進不會再次設置，因為已經是 True
+                    if not state.get('state', False):
+                        state['state'] = True
+                    
+                    # 如果有避險資產且持有，則賣出（也要分批）
+                    if self.hedge_ticker and state.get('hedge_state', False):
+                        hedge_trade_step = self._create_trade_step('藍燈賣出避險資產', state)
+                        orders.append({
+                            'action': 'sell',
+                            'ticker': self.hedge_ticker,
+                            'percent': 1.0,
+                            'split_execution': True,  # 標記需要分批執行
+                            'is_hedge_sell': True,  # 標記為避險資產賣出
+                            'trade_step': hedge_trade_step
+                        })
+                        state['hedge_state'] = False
+            else:
+                # 添加調試日誌 - 藍燈但不在買進窗口內
+                if date.year >= 2021:
+                    print(f"[DEBUG Strategy] {date.strftime('%Y-%m-%d')} 藍燈但不在買進窗口: score={score}, state['state']={state.get('state', False)}, should_buy_in_split={should_buy_in_split}")
+        else:
+            # 添加調試日誌 - 藍燈但條件不滿足
+            if date.year >= 2021 and score <= 16 and should_buy_in_split:
+                print(f"[DEBUG Strategy] {date.strftime('%Y-%m-%d')} 藍燈買進條件不滿足: score={score}, state['state']={state.get('state', False)}, should_buy_in_split={should_buy_in_split}, 條件檢查: score<=16={score <= 16}, not state={not state.get('state', False)}")
         
         # SCORE >= 38（紅燈）：賣出股票，買進避險資產
-        elif score >= 38 and state.get('state', False):
+        if score >= 38 and state.get('state', False):
             # 只有在分批賣出時間窗口內才產生訂單
             if should_sell_in_split:
                 trade_step = self._create_trade_step('紅燈賣出', state)
@@ -126,6 +144,7 @@ class CycleStrategy:
                     'action': 'sell',
                     'ticker': self.stock_ticker,
                     'percent': 1.0,
+                    'split_execution': True,  # 標記需要分批執行
                     'trigger_hedge_buy': True,  # 標記需要同時買進避險資產
                     'trade_step': trade_step
                 })
@@ -138,6 +157,7 @@ class CycleStrategy:
                         'action': 'buy',
                         'ticker': self.hedge_ticker,
                         'percent': 1.0,
+                        'split_execution': True,  # 標記需要分批執行
                         'is_hedge_buy': True,  # 標記為避險資產買進
                         'is_synced_split': True,  # 標記需要與股票賣出同步分批
                         'trade_step': hedge_trade_step
@@ -145,7 +165,7 @@ class CycleStrategy:
                     state['hedge_state'] = True
         
         # 16 < SCORE < 38：首次進入時買進股票
-        elif 16 < score < 38:
+        if 16 < score < 38:
             if state.get('a', 0) == 0:
                 state['a'] = 1
                 if not state.get('state', False):
