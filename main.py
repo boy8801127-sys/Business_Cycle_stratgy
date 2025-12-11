@@ -46,7 +46,7 @@ def print_menu():
     print("="*60)
     print("1. 讀取景氣燈號資料（從 CSV，驗證資料）")
     print("2. 蒐集股票和ETF資料（含禮貌休息）")
-    print("3. 執行回測（2020 年至今）")
+    print("3. 執行回測（2020 年至今）[已捨棄]")
     print("4. 產生績效報告和圖表")
     print("5. 批次更新資料（含禮貌休息）")
     print("6. 驗證股價資料（檢查異常）")
@@ -54,6 +54,9 @@ def print_menu():
     print("8. 填補零值價格資料（處理沒有交易的日子）")
     print("9. 刪除上櫃資料表中的權證資料（7開頭六位數）")
     print("10. 更新專案說明文件（自動檢測變更並更新）")
+    print("-" * 60)
+    print("11. 輸出 Orange 分析數據（股價 + 指標數據）")
+    print("12. 執行回測（新系統，基於 Orange 資料）")
     print("0. 離開")
     print("="*60)
 
@@ -340,6 +343,231 @@ def update_project_docs():
             print("[Warning] 找不到更新腳本，請手動執行 scripts/update_project_context.py")
     except Exception as e:
         print(f"[Error] 更新失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def run_backtest_new():
+    """選項 12：執行回測（新系統，基於 Orange 資料）"""
+    print("\n[選項 12] 執行回測（新系統，基於 Orange 資料）")
+    print("-" * 60)
+    
+    # 檢查 Orange 資料檔案是否存在
+    csv_path = 'results/orange_analysis_data.csv'
+    if not os.path.exists(csv_path):
+        print(f"[Error] 找不到 Orange 資料檔案：{csv_path}")
+        print("       請先執行選項 11 產生 Orange 分析數據")
+        return
+    
+    # 回測時間設定（固定為 2020-01-01 至 2025-11-30）
+    start_date = '2020-01-01'
+    end_date = '2025-11-30'
+    print(f"\n回測時間範圍：{start_date} 至 {end_date}")
+    
+    # 初始資金
+    capital = input("\n初始資金（預設 1,000,000）: ").strip()
+    capital = int(capital) if capital.isdigit() else 1000000
+    
+    # 選擇執行模式
+    print("\n請選擇執行模式：")
+    print("1. 單一策略執行")
+    print("2. 全部策略執行（目前只有兩個策略）")
+    
+    mode_choice = input("請選擇（1-2，預設 1）: ").strip()
+    if not mode_choice:
+        mode_choice = '1'
+    
+    # 匯入新的回測引擎和策略
+    from backtesting.backtest_engine_new import BacktestEngineNew
+    from backtesting.strategy_new import BuyAndHoldStrategyNew, ShortTermBondStrategyNew
+    
+    # 定義所有策略
+    all_strategies = {
+        '0': ('BuyAndHold', BuyAndHoldStrategyNew, '006208', None, None),
+        '1': ('ShortTermBond', ShortTermBondStrategyNew, '006208', '00865B', None),
+    }
+    
+    # 選擇要執行的策略
+    if mode_choice == '1':
+        # 單一策略執行
+        print("\n請選擇策略：")
+        print("0. 基準策略：買進並持有 006208")
+        print("1. 短天期美債避險（主資產 006208）")
+        
+        strategy_choice = input("請選擇（0-1，預設 1）: ").strip()
+        if not strategy_choice:
+            strategy_choice = '1'
+        
+        selected_strategies = [strategy_choice]
+    else:
+        # 全部策略執行
+        selected_strategies = list(all_strategies.keys())
+    
+    print(f"\n[Info] 回測時間：{start_date} 至 {end_date}")
+    print(f"[Info] 初始資金：{capital:,} 元")
+    print(f"[Info] 將執行 {len(selected_strategies)} 個策略")
+    
+    try:
+        # 執行所有選定的策略
+        all_results = []
+        
+        for strategy_key in selected_strategies:
+            if strategy_key not in all_strategies:
+                continue
+            
+            strategy_name, strategy_class, stock_ticker, hedge_ticker, filter_name = all_strategies[strategy_key]
+            
+            print(f"\n[執行策略] {strategy_name}...")
+            
+            # 建立策略實例
+            try:
+                if strategy_name == 'BuyAndHold':
+                    strategy = strategy_class(stock_ticker)
+                elif hedge_ticker:
+                    strategy = strategy_class(stock_ticker, hedge_ticker)
+                else:
+                    strategy = strategy_class(stock_ticker)
+            except Exception as e:
+                print(f"[Error] 建立策略 {strategy_name} 失敗: {e}")
+                import traceback
+                traceback.print_exc()
+                continue
+            
+            # 定義策略函數
+            def strategy_func(state, date, row, price_dict, positions=None, portfolio_value=None):
+                return strategy.generate_orders(state, date, row, price_dict, positions, portfolio_value)
+            
+            # 取得策略需要的標的列表
+            strategy_tickers = [stock_ticker]
+            if hedge_ticker:
+                strategy_tickers.append(hedge_ticker)
+            
+            # 執行回測
+            engine = BacktestEngineNew(initial_capital=capital)
+            results = engine.run_backtest(start_date, end_date, strategy_func, tickers=strategy_tickers)
+            
+            # 產生持倉變動摘要
+            position_summary = engine.generate_position_summary()
+            
+            # 收集結果
+            all_results.append({
+                'strategy_name': strategy_name,
+                'stock_ticker': stock_ticker,
+                'hedge_ticker': hedge_ticker if hedge_ticker else 'null',
+                'filter_name': filter_name if filter_name else 'null',
+                'annualized_return': results['metrics']['annualized_return'] * 100,
+                'total_return': results['total_return'] * 100,
+                'volatility': results['metrics']['volatility'] * 100,
+                'sharpe_ratio': results['metrics']['sharpe_ratio'],
+                'max_drawdown': results['metrics']['max_drawdown'] * 100,
+                'total_trades': results['metrics']['total_trades'],
+                'position_summary': position_summary,
+                'trades': results['trades'],
+                'final_value': results.get('final_value', capital),
+                'initial_capital': capital,
+                'final_positions': results.get('final_positions', {}),
+                'final_cash': results.get('final_cash', 0),
+                # 每日報酬率數據
+                'dates': results['dates'],
+                'portfolio_value': results['portfolio_value'],
+                'returns': results['returns']
+            })
+            
+            print(f"[Info] {strategy_name} 回測完成")
+            print(f"  總報酬率: {results['total_return']*100:.2f}%")
+            print(f"  年化報酬率: {results['metrics']['annualized_return']*100:.2f}%")
+            print(f"  最大回撤: {results['metrics']['max_drawdown']*100:.2f}%")
+            print(f"  夏普比率: {results['metrics']['sharpe_ratio']:.2f}")
+            print(f"  交易次數: {results['metrics']['total_trades']}")
+        
+        if not all_results:
+            print("[Error] 沒有策略執行成功")
+            return
+        
+        # 輸出結果到 CSV
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # 建立結果目錄
+        results_dir = 'results'
+        os.makedirs(results_dir, exist_ok=True)
+        
+        # 輸出回測結果摘要
+        summary_df = pd.DataFrame([
+            {
+                '策略名稱': r['strategy_name'],
+                '股票代號': r['stock_ticker'],
+                '避險資產': r['hedge_ticker'],
+                '總報酬率(%)': round(r['total_return'], 2),
+                '年化報酬率(%)': round(r['annualized_return'], 2),
+                '波動率(%)': round(r['volatility'], 2),
+                '夏普比率': round(r['sharpe_ratio'], 2),
+                '最大回撤(%)': round(r['max_drawdown'], 2),
+                '交易次數': r['total_trades'],
+                '最終價值': round(r['final_value'], 2),
+                '最終現金': round(r['final_cash'], 2)
+            }
+            for r in all_results
+        ])
+        
+        summary_path = f'{results_dir}/backtest_results_new_{timestamp}.csv'
+        summary_df.to_csv(summary_path, index=False, encoding='utf-8-sig')
+        print(f"\n[Info] 回測結果摘要已輸出：{summary_path}")
+        
+        # 輸出每個策略的詳細交易記錄
+        for r in all_results:
+            strategy_name = r['strategy_name']
+            if r['trades']:
+                trades_df = pd.DataFrame(r['trades'])
+                trades_path = f'{results_dir}/position_changes_{strategy_name}_new_{timestamp}.csv'
+                trades_df.to_csv(trades_path, index=False, encoding='utf-8-sig')
+                print(f"[Info] {strategy_name} 交易記錄已輸出：{trades_path}")
+            
+            # 輸出每日報酬率
+            if r['dates'] and r['portfolio_value'] and r['returns']:
+                returns_series = pd.Series(r['returns']).fillna(0)
+                cumulative_returns = (1 + returns_series).cumprod().sub(1).mul(100)
+                daily_df = pd.DataFrame({
+                    '日期': r['dates'],
+                    '投資組合價值': r['portfolio_value'],
+                    '每日報酬率(%)': [ret * 100 for ret in r['returns']],
+                    '累積報酬率(%)': cumulative_returns.tolist()
+                })
+                daily_path = f'{results_dir}/daily_returns_{strategy_name}_new_{timestamp}.csv'
+                daily_df.to_csv(daily_path, index=False, encoding='utf-8-sig')
+                print(f"[Info] {strategy_name} 每日報酬率已輸出：{daily_path}")
+        
+        print("\n[完成] 所有回測結果已輸出")
+        
+    except Exception as e:
+        print(f"\n[Error] 回測失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def export_orange_data():
+    """選項 11：輸出 Orange 分析數據"""
+    try:
+        # 導入輸出腳本
+        import sys
+        import importlib.util
+        from pathlib import Path
+        
+        scripts_path = Path(__file__).parent / 'scripts' / 'export_orange_data.py'
+        if scripts_path.exists():
+            spec = importlib.util.spec_from_file_location("export_orange_data", scripts_path)
+            if spec and spec.loader:
+                export_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(export_module)
+                if hasattr(export_module, 'export_orange_data'):
+                    export_module.export_orange_data()
+                else:
+                    print("[Error] 輸出腳本缺少 export_orange_data 函數")
+            else:
+                print("[Error] 無法載入輸出腳本")
+        else:
+            print("[Error] 找不到輸出腳本 scripts/export_orange_data.py")
+    except Exception as e:
+        print(f"[Error] 輸出失敗: {e}")
         import traceback
         traceback.print_exc()
 
@@ -1312,7 +1540,7 @@ def main():
     while True:
         try:
             print_menu()
-            choice = input("\n請選擇功能（0-10）: ").strip()
+            choice = input("\n請選擇功能（0-11）: ").strip()
             
             # 過濾掉可能的 PowerShell 自動執行腳本或路徑
             # 如果輸入看起來像腳本路徑或命令，視為無效
@@ -1333,7 +1561,7 @@ def main():
             
             # 只接受數字
             if not choice.isdigit():
-                print("[Error] 無效的選項，請輸入數字（0-10）")
+                print("[Error] 無效的選項，請輸入數字（0-12）")
                 continue
             
             if choice == '0':
@@ -1359,8 +1587,12 @@ def main():
                 delete_warrants_from_otc()
             elif choice == '10':
                 update_project_docs()
+            elif choice == '11':
+                export_orange_data()
+            elif choice == '12':
+                run_backtest_new()
             else:
-                print("[Error] 無效的選項，請輸入 0-10 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-12 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):

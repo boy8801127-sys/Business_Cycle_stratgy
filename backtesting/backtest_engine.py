@@ -261,6 +261,17 @@ class BacktestEngine:
                 except:
                     pass
             
+            # #region agent log
+            if date.year >= 2022 and date.month == 12 and date.day == 27:
+                import json
+                with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:246', 'message': 'Reading cycle data for date', 'data': {'date': date.strftime('%Y-%m-%d'), 'score': float(score) if score is not None else None, 'data_year': int(data_year) if data_year is not None else None, 'data_month': int(data_month) if data_month is not None else None, 'publish_date': str(publish_date) if publish_date else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+            if date.year >= 2024 and date.month == 8 and date.day == 26:
+                import json
+                with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:246', 'message': 'Reading cycle data for date', 'data': {'date': date.strftime('%Y-%m-%d'), 'score': float(score) if score is not None else None, 'data_year': int(data_year) if data_year is not None else None, 'data_month': int(data_month) if data_month is not None else None, 'publish_date': str(publish_date) if publish_date else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+            # #endregion
+            
             if score is None:
                 # 如果沒有景氣燈號資料，跳過
                 continue
@@ -303,6 +314,9 @@ class BacktestEngine:
                             # 重置賣出標記（如果有的話）
                             need_sell_next_month = False
                             sell_month = None
+                            sell_signal_year = None  # 重置過時的賣出信號
+                            sell_signal_month = None
+                            sell_signal_score = None
                             need_buy_after_publish = True
                             buy_start_date = date  # 從發布日期開始
                             buy_signal_year = data_year
@@ -318,6 +332,9 @@ class BacktestEngine:
                             # 重置買進標記（如果有的話）
                             need_buy_after_publish = False
                             buy_start_date = None
+                            buy_signal_year = None  # 重置過時的買進信號
+                            buy_signal_month = None
+                            buy_signal_score = None
                             need_sell_next_month = True
                             # 計算隔月（發布月份的下一個月）
                             if isinstance(publish_date, pd.Timestamp):
@@ -424,6 +441,9 @@ class BacktestEngine:
                             print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 買進窗口已結束（窗口結束日期={buy_window[-1]}），重置 need_buy_after_publish=False")
                         need_buy_after_publish = False
                         buy_start_date = None
+                        buy_signal_year = None  # 重置過時的買進信號
+                        buy_signal_month = None
+                        buy_signal_score = None
                     elif date.year >= 2021 and buy_window:
                         print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 不在買進窗口內，窗口結束日期={buy_window[-1]}")
             
@@ -464,10 +484,16 @@ class BacktestEngine:
                         if sell_window_end_date and date > sell_window_end_date:
                             need_sell_next_month = False
                             sell_month = None
+                            sell_signal_year = None  # 重置過時的賣出信號
+                            sell_signal_month = None
+                            sell_signal_score = None
                         elif (date.year, date.month) > sell_month:
                             # 如果當前日期已經超過賣出月份，也重置
                             need_sell_next_month = False
                             sell_month = None
+                            sell_signal_year = None  # 重置過時的賣出信號
+                            sell_signal_month = None
+                            sell_signal_score = None
             
             # 檢查是否在前5個或第四個禮拜的交易日內（用於其他策略的分批執行）
             is_in_first_five_days = date in month_first_five_days.get(current_month_key, [])
@@ -490,6 +516,13 @@ class BacktestEngine:
             self._sell_signal_month = sell_signal_month if need_sell_this_month else None
             self._sell_signal_score = sell_signal_score if need_sell_this_month else None
             
+            # #region agent log
+            if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                import json
+                with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:483', 'message': 'Setting signal scores', 'data': {'date': date.strftime('%Y-%m-%d'), 'current_signal_score': float(current_signal_score) if current_signal_score is not None else None, 'current_signal_year': int(current_signal_year) if current_signal_year is not None else None, 'current_signal_month': int(current_signal_month) if current_signal_month is not None else None, 'buy_signal_score': float(buy_signal_score) if buy_signal_score is not None else None, 'buy_signal_year': int(buy_signal_year) if buy_signal_year is not None else None, 'buy_signal_month': int(buy_signal_month) if buy_signal_month is not None else None, 'need_buy_this_month': bool(need_buy_this_month), 'sell_signal_score': float(sell_signal_score) if sell_signal_score is not None else None, 'sell_signal_year': int(sell_signal_year) if sell_signal_year is not None else None, 'sell_signal_month': int(sell_signal_month) if sell_signal_month is not None else None, 'need_sell_this_month': bool(need_sell_this_month)}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+            # #endregion
+            
             # 在 strategy_state 中設置交易時機標記
             strategy_state['is_first_trading_day'] = is_first_trading_day
             strategy_state['is_last_trading_day'] = is_last_trading_day
@@ -509,6 +542,12 @@ class BacktestEngine:
             # 添加調試日誌
             if date.year >= 2021 and (need_buy_this_month or need_sell_this_month):
                 print(f"[DEBUG] {date.strftime('%Y-%m-%d')} 策略執行前: need_buy_this_month={need_buy_this_month}, need_sell_this_month={need_sell_this_month}, need_buy_after_publish={need_buy_after_publish}, need_sell_next_month={need_sell_next_month}, should_buy_in_split={should_buy_in_split}, should_sell_in_split={should_sell_in_split}, state['state']={strategy_state.get('state', 'None')}, score={strategy_state.get('score', 'None')}")
+            # #region agent log
+            if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                import json
+                with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                    f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'B', 'location': 'backtest_engine.py:508', 'message': 'Before strategy execution, strategy_state score', 'data': {'date': date.strftime('%Y-%m-%d'), 'strategy_state_score': float(strategy_state.get('score')) if strategy_state.get('score') is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+            # #endregion
             orders = strategy_func(strategy_state, date, price_dict, self.positions, portfolio_value_before)
             # 添加調試日誌
             if date.year >= 2021 and (need_buy_this_month or need_sell_this_month):
@@ -751,28 +790,28 @@ class BacktestEngine:
                     if is_hedge_buy and is_synced_split:
                         continue
                     
-                        elif action == 'sell' and should_sell_in_split:
-                            # 處理一般賣出信號（不需要觸發避險資產買進的情況）
-                            # 這是基本策略的賣出信號，需要分批執行（第四個禮拜開始）
-                            if ticker not in sell_split_orders and should_sell_in_split:
-                                # 初始化分批訂單（只在分批時間窗口內的第一天）
-                                fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
-                                if date not in fourth_week_days and prev_month_key:
-                                    fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
-                                total_days = len(fourth_week_days) if fourth_week_days else 5
-                                sell_split_orders[ticker] = {
-                                    'total_percent': percent,
-                                    'executed_percent': 0.0,
-                                    'days_remaining': total_days,
-                                    'start_date': date,
-                                    'initial_days': total_days,
-                                    'trade_step': order.get('trade_step')  # 保存原始交易步驟
-                                }
-                            # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
-                            if ticker not in sell_split_orders or not should_sell_in_split:
-                                continue
-                            # 分批執行邏輯在上面已經處理，這裡跳過
+                    elif action == 'sell' and should_sell_in_split:
+                        # 處理一般賣出信號（不需要觸發避險資產買進的情況）
+                        # 這是基本策略的賣出信號，需要分批執行（第四個禮拜開始）
+                        if ticker not in sell_split_orders and should_sell_in_split:
+                            # 初始化分批訂單（只在分批時間窗口內的第一天）
+                            fourth_week_days = month_fourth_week_five_days.get(current_month_key, [])
+                            if date not in fourth_week_days and prev_month_key:
+                                fourth_week_days = month_fourth_week_five_days.get(prev_month_key, [])
+                            total_days = len(fourth_week_days) if fourth_week_days else 5
+                            sell_split_orders[ticker] = {
+                                'total_percent': percent,
+                                'executed_percent': 0.0,
+                                'days_remaining': total_days,
+                                'start_date': date,
+                                'initial_days': total_days,
+                                'trade_step': order.get('trade_step')  # 保存原始交易步驟
+                            }
+                        # 如果不在分批時間窗口內，忽略這個訂單（因為我們已經在分批執行）
+                        if ticker not in sell_split_orders or not should_sell_in_split:
                             continue
+                        # 分批執行邏輯在上面已經處理，這裡跳過
+                        continue
                     
                     # 檢查是否為網格式策略的倉位調整（也需要分批執行）
                     # 網格式策略：倉位調整（percent通常在0.05-0.95之間）
@@ -1024,10 +1063,22 @@ class BacktestEngine:
                 trade_record['燈號年份'] = self._buy_signal_year
                 trade_record['燈號月份'] = self._buy_signal_month
                 trade_record['燈號分數'] = round(self._buy_signal_score, 2) if self._buy_signal_score is not None else None
+                # #region agent log
+                if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                    import json
+                    with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:1023', 'message': 'Buy order using buy_signal_score', 'data': {'date': date.strftime('%Y-%m-%d'), 'ticker': ticker, 'action': 'buy', 'buy_signal_score': float(self._buy_signal_score) if self._buy_signal_score is not None else None, 'buy_signal_year': int(self._buy_signal_year) if self._buy_signal_year is not None else None, 'buy_signal_month': int(self._buy_signal_month) if self._buy_signal_month is not None else None, 'current_signal_score': float(getattr(self, '_current_signal_score', None)) if getattr(self, '_current_signal_score', None) is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+                # #endregion
             elif hasattr(self, '_current_signal_year') and self._current_signal_year is not None:
                 trade_record['燈號年份'] = self._current_signal_year
                 trade_record['燈號月份'] = self._current_signal_month
                 trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
+                # #region agent log
+                if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                    import json
+                    with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:1027', 'message': 'Buy order using current_signal_score', 'data': {'date': date.strftime('%Y-%m-%d'), 'ticker': ticker, 'action': 'buy', 'current_signal_score': float(self._current_signal_score) if self._current_signal_score is not None else None, 'current_signal_year': int(self._current_signal_year) if self._current_signal_year is not None else None, 'current_signal_month': int(self._current_signal_month) if self._current_signal_month is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+                # #endregion
             
             self.trades.append(trade_record)
         
@@ -1100,10 +1151,22 @@ class BacktestEngine:
                 trade_record['燈號年份'] = self._sell_signal_year
                 trade_record['燈號月份'] = self._sell_signal_month
                 trade_record['燈號分數'] = round(self._sell_signal_score, 2) if self._sell_signal_score is not None else None
+                # #region agent log
+                if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                    import json
+                    with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:1099', 'message': 'Sell order using sell_signal_score', 'data': {'date': date.strftime('%Y-%m-%d'), 'ticker': ticker, 'action': 'sell', 'sell_signal_score': float(self._sell_signal_score) if self._sell_signal_score is not None else None, 'sell_signal_year': int(self._sell_signal_year) if self._sell_signal_year is not None else None, 'sell_signal_month': int(self._sell_signal_month) if self._sell_signal_month is not None else None, 'current_signal_score': float(getattr(self, '_current_signal_score', None)) if getattr(self, '_current_signal_score', None) is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+                # #endregion
             elif hasattr(self, '_current_signal_year') and self._current_signal_year is not None:
                 trade_record['燈號年份'] = self._current_signal_year
                 trade_record['燈號月份'] = self._current_signal_month
                 trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
+                # #region agent log
+                if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                    import json
+                    with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                        f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:1103', 'message': 'Sell order using current_signal_score', 'data': {'date': date.strftime('%Y-%m-%d'), 'ticker': ticker, 'action': 'sell', 'current_signal_score': float(self._current_signal_score) if self._current_signal_score is not None else None, 'current_signal_year': int(self._current_signal_year) if self._current_signal_year is not None else None, 'current_signal_month': int(self._current_signal_month) if self._current_signal_month is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+                # #endregion
             
             self.trades.append(trade_record)
             
@@ -1184,6 +1247,12 @@ class BacktestEngine:
                                     hedge_trade_record['燈號年份'] = self._current_signal_year
                                     hedge_trade_record['燈號月份'] = self._current_signal_month
                                     hedge_trade_record['燈號分數'] = round(self._current_signal_score, 2) if self._current_signal_score is not None else None
+                                    # #region agent log
+                                    if (date.year >= 2022 and date.month == 12 and date.day == 27) or (date.year >= 2024 and date.month == 8 and date.day == 26):
+                                        import json
+                                        with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
+                                            f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'A', 'location': 'backtest_engine.py:1183', 'message': 'Hedge buy order using current_signal_score', 'data': {'date': date.strftime('%Y-%m-%d'), 'ticker': hedge_ticker, 'action': 'hedge_buy', 'current_signal_score': float(self._current_signal_score) if self._current_signal_score is not None else None, 'current_signal_year': int(self._current_signal_year) if self._current_signal_year is not None else None, 'current_signal_month': int(self._current_signal_month) if self._current_signal_month is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
+                                    # #endregion
                                 
                                 self.trades.append(hedge_trade_record)
     
