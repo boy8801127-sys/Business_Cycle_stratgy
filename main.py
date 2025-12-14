@@ -5,6 +5,8 @@
 
 import os
 import sys
+import json
+import time
 from datetime import datetime
 import pandas as pd
 
@@ -368,24 +370,41 @@ def run_backtest_new():
     capital = input("\n初始資金（預設 1,000,000）: ").strip()
     capital = int(capital) if capital.isdigit() else 1000000
     
-    # 選擇執行模式
-    print("\n請選擇執行模式：")
-    print("1. 單一策略執行")
-    print("2. 全部策略執行（目前只有兩個策略）")
-    
-    mode_choice = input("請選擇（1-2，預設 1）: ").strip()
-    if not mode_choice:
-        mode_choice = '1'
-    
     # 匯入新的回測引擎和策略
     from backtesting.backtest_engine_new import BacktestEngineNew
     from backtesting.strategy_new import BuyAndHoldStrategyNew, ShortTermBondStrategyNew
+    
+    # [Orange 相關功能] 條件匯入 Orange 預測策略（可選依賴）
+    ORANGE_AVAILABLE = False
+    OrangePredictionStrategy = None
+    try:
+        from backtesting.strategy_orange import OrangePredictionStrategy
+        ORANGE_AVAILABLE = True
+    except ImportError as e:
+        print(f"[Orange Warning] Orange 預測策略不可用: {e}")
+        print(f"[Orange Info] 策略 2（Orange 預測策略）將不會出現在選單中")
+    except Exception as e:
+        print(f"[Orange Warning] 載入 Orange 預測策略時發生錯誤: {e}")
     
     # 定義所有策略
     all_strategies = {
         '0': ('BuyAndHold', BuyAndHoldStrategyNew, '006208', None, None),
         '1': ('ShortTermBond', ShortTermBondStrategyNew, '006208', '00865B', None),
     }
+    
+    # [Orange 相關功能] 條件性加入 Orange 預測策略
+    if ORANGE_AVAILABLE and OrangePredictionStrategy is not None:
+        all_strategies['2'] = ('OrangePrediction', OrangePredictionStrategy, '006208', '00865B', None)
+    
+    # 選擇執行模式
+    print("\n請選擇執行模式：")
+    strategy_count = len(all_strategies)
+    print(f"1. 單一策略執行")
+    print(f"2. 全部策略執行（目前有 {strategy_count} 個策略）")
+    
+    mode_choice = input("請選擇（1-2，預設 1）: ").strip()
+    if not mode_choice:
+        mode_choice = '1'
     
     # 選擇要執行的策略
     if mode_choice == '1':
@@ -394,9 +413,23 @@ def run_backtest_new():
         print("0. 基準策略：買進並持有 006208")
         print("1. 短天期美債避險（主資產 006208）")
         
-        strategy_choice = input("請選擇（0-1，預設 1）: ").strip()
+        # [Orange 相關功能] 條件性顯示 Orange 預測策略選項
+        if ORANGE_AVAILABLE and OrangePredictionStrategy is not None:
+            print("2. Orange 預測策略（主資產 006208）[需要 Orange 模型]")
+            strategy_range = "0-2"
+        else:
+            strategy_range = "0-1"
+        
+        strategy_choice = input(f"請選擇（{strategy_range}，預設 1）: ").strip()
         if not strategy_choice:
             strategy_choice = '1'
+        
+        # 驗證選擇的策略是否存在
+        if strategy_choice not in all_strategies:
+            print(f"[Error] 無效的策略選擇: {strategy_choice}")
+            if not ORANGE_AVAILABLE and strategy_choice == '2':
+                print("[Info] Orange 預測策略不可用，請選擇其他策略")
+            return
         
         selected_strategies = [strategy_choice]
     else:
@@ -423,6 +456,10 @@ def run_backtest_new():
             try:
                 if strategy_name == 'BuyAndHold':
                     strategy = strategy_class(stock_ticker)
+                elif strategy_name == 'OrangePrediction':
+                    # [Orange 相關功能] Orange 預測策略需要模型路徑
+                    model_path = 'orange_data_export/tree.pkcls'
+                    strategy = strategy_class(stock_ticker, hedge_ticker, model_path)
                 elif hedge_ticker:
                     strategy = strategy_class(stock_ticker, hedge_ticker)
                 else:
@@ -432,6 +469,13 @@ def run_backtest_new():
                 import traceback
                 traceback.print_exc()
                 continue
+            
+            # 檢查 OrangePredictionStrategy 的模型載入狀態
+            if strategy_name == 'OrangePrediction':
+                if hasattr(strategy, 'model_available') and not strategy.model_available:
+                    error_msg = getattr(strategy, 'load_error', '未知錯誤')
+                    print(f"[Error] Orange 策略模型載入失敗，跳過此策略: {error_msg}")
+                    continue
             
             # 定義策略函數
             def strategy_func(state, date, row, price_dict, positions=None, portfolio_value=None):
