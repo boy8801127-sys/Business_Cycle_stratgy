@@ -28,6 +28,287 @@ from data_collection.cycle_data_collector import CycleDataCollector
 from data_collection.indicator_data_collector import IndicatorDataCollector
 from data_collection.stock_data_collector import StockDataCollector
 from data_collection.otc_data_collector import OTCDataCollector
+
+# 策略名稱縮寫對照表（用於 Excel 工作表命名）
+STRATEGY_NAME_MAP = {
+    'BuyAndHold': 'BuyHold',
+    'ShortTermBond': 'ST_Bond',
+    'Cash': 'Cash',
+    'LongTermBond': 'LT_Bond',
+    'InverseETF': 'InvETF',
+    'FiftyFifty': '50_50',
+    'OrangePrediction': 'Orange',
+}
+
+
+def _get_ticker_names(tickers):
+    """
+    從資料庫取得股票名稱對照表
+    
+    參數:
+    - tickers: 股票代號列表，例如 ['006208', '00865B', '00687B']
+    
+    返回:
+    - dict: {ticker: stock_name}
+    """
+    db_manager = DatabaseManager()
+    ticker_names = {}
+    
+    for ticker in tickers:
+        if not ticker or ticker == 'null':
+            continue
+        # 先從上市市場查詢
+        query = """
+            SELECT DISTINCT stock_name 
+            FROM tw_stock_price_data 
+            WHERE ticker = ? AND stock_name IS NOT NULL AND stock_name != ''
+            LIMIT 1
+        """
+        result = db_manager.execute_query(query, (ticker,))
+        if result:
+            ticker_names[ticker] = result[0][0]
+        else:
+            # 如果上市市場沒有，從上櫃市場查詢
+            query = """
+                SELECT DISTINCT stock_name 
+                FROM tw_otc_stock_price_data 
+                WHERE ticker = ? AND stock_name IS NOT NULL AND stock_name != ''
+                LIMIT 1
+            """
+            result = db_manager.execute_query(query, (ticker,))
+            if result:
+                ticker_names[ticker] = result[0][0]
+            else:
+                ticker_names[ticker] = ticker  # 如果找不到，使用代號
+    
+    return ticker_names
+
+
+def _merge_daily_and_trades(dates, portfolio_values, returns, trades, ticker_names, daily_positions=None, daily_cash=None):
+    """
+    合併每日數據與交易記錄
+    
+    參數:
+    - dates: 日期列表
+    - portfolio_values: 投資組合價值列表
+    - returns: 每日報酬率列表
+    - trades: 交易記錄列表
+    - ticker_names: 股票名稱對照表
+    - daily_positions: 每日持倉記錄列表 [{ticker: shares}, ...]
+    - daily_cash: 每日現金餘額列表
+    
+    返回:
+    - DataFrame: 合併後的數據
+    """
+    # 建立日期索引的交易記錄字典
+    trades_by_date = {}
+    for trade in trades:
+        trade_date = trade.get('日期')
+        if trade_date is None:
+            continue
+        
+        # 標準化日期格式
+        if isinstance(trade_date, str):
+            try:
+                trade_date = pd.to_datetime(trade_date).date()
+            except:
+                continue
+        elif hasattr(trade_date, 'date'):
+            trade_date = trade_date.date()
+        
+        if trade_date not in trades_by_date:
+            trades_by_date[trade_date] = []
+        trades_by_date[trade_date].append(trade)
+    
+    # 輔助函數：將日期轉換為字串格式
+    def format_date_for_excel(date_val):
+        """將日期轉換為 'YYYY-MM-DD' 字串格式，方便 Power BI 讀取"""
+        if date_val is None:
+            return ''
+        if isinstance(date_val, str):
+            # 如果已經是字串，嘗試解析後再格式化
+            try:
+                date_obj = pd.to_datetime(date_val)
+                return date_obj.strftime('%Y-%m-%d')
+            except:
+                return date_val
+        elif hasattr(date_val, 'strftime'):
+            # datetime 或 date 對象
+            return date_val.strftime('%Y-%m-%d')
+        elif hasattr(date_val, 'date'):
+            # datetime 對象
+            return date_val.date().strftime('%Y-%m-%d')
+        else:
+            return str(date_val)
+    
+    # 合併數據
+    merged_data = []
+    if returns:
+        returns_series = pd.Series(returns).fillna(0)
+        cumulative_returns = (1 + returns_series).cumprod().sub(1).mul(100)
+    else:
+        cumulative_returns = pd.Series([0] * len(dates))
+    
+    # 追蹤持倉平均成本 {ticker: {'shares': int, 'avg_cost': float, 'total_cost': float}}
+    positions_cost = {}
+    
+    for i, date in enumerate(dates):
+        date_obj = date
+        # 標準化日期格式（用於比對交易記錄）
+        if isinstance(date, str):
+            try:
+                date_obj = pd.to_datetime(date).date()
+            except:
+                continue
+        elif hasattr(date, 'date'):
+            date_obj = date.date()
+        
+        # 格式化日期為字串（用於輸出到 Excel）
+        date_str = format_date_for_excel(date)
+        
+        # 取得當日持倉
+        day_positions = daily_positions[i] if daily_positions and i < len(daily_positions) else {}
+        
+        # 取得當日現金餘額
+        cash_balance = daily_cash[i] if daily_cash and i < len(daily_cash) else None
+        
+        # 每天只建立一行（合併同一天的所有交易）
+        row = {
+            '日期': date_str,
+            '投資組合價值': round(portfolio_values[i], 2) if i < len(portfolio_values) else None,
+            '每日報酬率(%)': round(returns[i] * 100, 4) if returns and i < len(returns) and returns[i] is not None else None,
+            '累積報酬率(%)': round(cumulative_returns.iloc[i], 2) if i < len(cumulative_returns) else None,
+            '持倉': '',  # 先設為空，處理完交易後再格式化（包含平均成本）
+            '現金部位': round(cash_balance, 2) if cash_balance is not None else None,
+            '動作': '',
+            '總交易量(價格)': 0,
+            '盈虧': 0,
+            '稅費': 0
+        }
+        
+        # 如果這一天有交易，合併所有交易資訊
+        if date_obj in trades_by_date:
+            trades_today = trades_by_date[date_obj]
+            actions = []
+            buy_total = 0
+            sell_total = 0
+            buy_fees = 0  # 買進手續費
+            sell_fees = 0  # 賣出證交稅
+            daily_profit_loss = 0  # 當天的盈虧
+            
+            # 先處理買進交易（更新持倉成本），再處理賣出交易（計算盈虧）
+            buy_trades = [t for t in trades_today if t.get('動作') == '買進']
+            sell_trades = [t for t in trades_today if t.get('動作') == '賣出']
+            
+            # 處理買進：更新持倉平均成本
+            for trade in buy_trades:
+                ticker = trade.get('標的代號', '')
+                shares = trade.get('股數', 0) or 0
+                price = trade.get('價格', 0) or 0
+                trade_amount = shares * price
+                fee = trade.get('手續費', 0) or 0
+                
+                # 累積動作和金額
+                asset_name = ticker_names.get(ticker, ticker)
+                actions.append(f"買進{asset_name}")
+                buy_total += trade_amount
+                buy_fees += fee
+                
+                # 更新持倉平均成本（加權平均）
+                if ticker in positions_cost:
+                    # 加權平均：(舊總成本 + 新成本) / (舊股數 + 新股數)
+                    old_shares = positions_cost[ticker]['shares']
+                    old_total_cost = positions_cost[ticker]['total_cost']
+                    new_total_cost = old_total_cost + trade_amount
+                    new_total_shares = old_shares + shares
+                    positions_cost[ticker]['shares'] = new_total_shares
+                    positions_cost[ticker]['total_cost'] = new_total_cost
+                    positions_cost[ticker]['avg_cost'] = new_total_cost / new_total_shares if new_total_shares > 0 else 0
+                else:
+                    # 第一次買進
+                    positions_cost[ticker] = {
+                        'shares': shares,
+                        'avg_cost': price,
+                        'total_cost': trade_amount
+                    }
+            
+            # 處理賣出：計算實現損益
+            for trade in sell_trades:
+                ticker = trade.get('標的代號', '')
+                shares = trade.get('股數', 0) or 0
+                price = trade.get('價格', 0) or 0
+                trade_amount = shares * price
+                tax = trade.get('證交稅', 0) or 0
+                
+                # 累積動作和金額
+                asset_name = ticker_names.get(ticker, ticker)
+                actions.append(f"賣出{asset_name}")
+                sell_total += trade_amount
+                sell_fees += tax
+                
+                # 計算實現損益（使用當前持倉的平均成本）
+                if ticker in positions_cost and positions_cost[ticker]['shares'] > 0:
+                    avg_cost = positions_cost[ticker]['avg_cost']
+                    cost_basis = shares * avg_cost  # 賣出的成本基礎
+                    net_revenue = trade_amount - tax  # 賣出淨收入
+                    realized_pnl = net_revenue - cost_basis  # 實現損益
+                    daily_profit_loss += realized_pnl
+                    
+                    # 更新持倉（減少股數，平均成本不變）
+                    positions_cost[ticker]['shares'] -= shares
+                    if positions_cost[ticker]['shares'] <= 0:
+                        # 全部賣完，清除持倉
+                        positions_cost[ticker]['shares'] = 0
+                        positions_cost[ticker]['total_cost'] = 0
+                        positions_cost[ticker]['avg_cost'] = 0
+                    else:
+                        # 按比例減少總成本
+                        positions_cost[ticker]['total_cost'] = positions_cost[ticker]['shares'] * avg_cost
+                else:
+                    # 沒有持倉記錄，無法計算成本基礎，只計算淨收入
+                    net_revenue = trade_amount - tax
+                    daily_profit_loss += net_revenue
+            
+            # 扣除買進手續費（作為費用）
+            daily_profit_loss -= buy_fees
+            
+            # 合併動作（用分號分隔）
+            row['動作'] = '；'.join(actions)
+            row['總交易量(價格)'] = round(buy_total + sell_total, 2)
+            row['盈虧'] = round(daily_profit_loss, 2)
+            row['稅費'] = round(buy_fees + sell_fees, 2)
+        
+        # 處理完交易後，格式化持倉字串（包含平均成本）
+        # 使用當日持倉和更新後的 positions_cost
+        position_str_parts = []
+        for ticker, shares in sorted(day_positions.items()):
+            if shares > 0:
+                # 取得平均成本
+                # 注意：day_positions 是當日結束時的持倉，positions_cost 是處理完交易後的持倉
+                # 理論上應該一致，但為了安全，優先使用 positions_cost 中的股數來取得平均成本
+                avg_cost = None
+                if ticker in positions_cost:
+                    # 如果 positions_cost 中有記錄，使用其平均成本
+                    # 即使 shares 為 0，也可能有平均成本記錄（剛賣完的情況）
+                    if positions_cost[ticker]['shares'] > 0:
+                        # 有持倉，使用平均成本
+                        avg_cost = positions_cost[ticker]['avg_cost']
+                    elif positions_cost[ticker].get('avg_cost', 0) > 0:
+                        # 沒有持倉但還有平均成本記錄（剛賣完），使用最後的平均成本
+                        avg_cost = positions_cost[ticker]['avg_cost']
+                
+                # 格式化：ticker:shares@avg_cost
+                # 使用 day_positions 中的股數（當日實際持倉），但平均成本從 positions_cost 取得
+                if avg_cost is not None and avg_cost > 0:
+                    position_str_parts.append(f"{ticker}:{shares}@{round(avg_cost, 2)}")
+                else:
+                    # 如果沒有平均成本記錄，只顯示股數
+                    position_str_parts.append(f"{ticker}:{shares}")
+        row['持倉'] = ';'.join(position_str_parts) if position_str_parts else ''
+        
+        merged_data.append(row)
+    
+    return pd.DataFrame(merged_data)
 from backtesting.backtest_engine import BacktestEngine
 from backtesting.strategy import (
     ShortTermBondStrategy, CashStrategy, LongTermBondStrategy,
@@ -372,7 +653,14 @@ def run_backtest_new():
     
     # 匯入新的回測引擎和策略
     from backtesting.backtest_engine_new import BacktestEngineNew
-    from backtesting.strategy_new import BuyAndHoldStrategyNew, ShortTermBondStrategyNew
+    from backtesting.strategy_new import (
+        BuyAndHoldStrategyNew, 
+        ShortTermBondStrategyNew,
+        CashStrategyNew,
+        LongTermBondStrategyNew,
+        InverseETFStrategyNew,
+        FiftyFiftyStrategyNew
+    )
     
     # [Orange 相關功能] 條件匯入 Orange 預測策略（可選依賴）
     ORANGE_AVAILABLE = False
@@ -386,13 +674,20 @@ def run_backtest_new():
     except Exception as e:
         print(f"[Orange Warning] 載入 Orange 預測策略時發生錯誤: {e}")
     
-    # 定義所有策略
+    # 定義所有策略（基本策略）
     all_strategies = {
         '0': ('BuyAndHold', BuyAndHoldStrategyNew, '006208', None, None),
         '1': ('ShortTermBond', ShortTermBondStrategyNew, '006208', '00865B', None),
     }
     
-    # [Orange 相關功能] 條件性加入 Orange 預測策略
+    # 新增四個策略（編號固定為 '3' 到 '6'，因為 Orange 佔據 '2'）
+    all_strategies['3'] = ('Cash', CashStrategyNew, '006208', None, None)
+    all_strategies['4'] = ('LongTermBond', LongTermBondStrategyNew, '006208', '00687B', None)
+    all_strategies['5'] = ('InverseETF', InverseETFStrategyNew, '006208', '00664R', None)
+    all_strategies['6'] = ('FiftyFifty', FiftyFiftyStrategyNew, '006208', '00865B', None)
+    
+    # [Orange 相關功能] 條件性加入 Orange 預測策略（保持在 '2'）
+    # 注意：這個條件判斷必須在新增四個策略之後執行
     if ORANGE_AVAILABLE and OrangePredictionStrategy is not None:
         all_strategies['2'] = ('OrangePrediction', OrangePredictionStrategy, '006208', '00865B', None)
     
@@ -416,9 +711,19 @@ def run_backtest_new():
         # [Orange 相關功能] 條件性顯示 Orange 預測策略選項
         if ORANGE_AVAILABLE and OrangePredictionStrategy is not None:
             print("2. Orange 預測策略（主資產 006208）[需要 Orange 模型]")
-            strategy_range = "0-2"
+        
+        # 新增的四個策略（固定編號 3-6）
+        print("3. 現金避險（主資產 006208）")
+        print("4. 長天期美債避險（主資產 006208）")
+        print("5. 反向ETF避險（主資產 006208）")
+        print("6. 50:50配置（主資產 006208）")
+        
+        # 動態計算策略範圍
+        # 如果 Orange 可用，範圍是 0-6；如果不可用，範圍是 0,1,3-6（跳過 2）
+        if ORANGE_AVAILABLE and OrangePredictionStrategy is not None:
+            strategy_range = "0-6"  # 包含 Orange (2)
         else:
-            strategy_range = "0-1"
+            strategy_range = "0,1,3-6"  # 跳過 2（Orange 不可用）
         
         strategy_choice = input(f"請選擇（{strategy_range}，預設 1）: ").strip()
         if not strategy_choice:
@@ -433,8 +738,9 @@ def run_backtest_new():
         
         selected_strategies = [strategy_choice]
     else:
-        # 全部策略執行
-        selected_strategies = list(all_strategies.keys())
+        # 全部策略執行（排除 Orange 策略）
+        selected_strategies = [key for key in all_strategies.keys() if key != '2']
+        print(f"[Info] 將執行 {len(selected_strategies)} 個策略（已排除 Orange 預測策略）")
     
     print(f"\n[Info] 回測時間：{start_date} 至 {end_date}")
     print(f"[Info] 初始資金：{capital:,} 元")
@@ -460,7 +766,11 @@ def run_backtest_new():
                     # [Orange 相關功能] Orange 預測策略需要模型路徑
                     model_path = 'orange_data_export/tree.pkcls'
                     strategy = strategy_class(stock_ticker, hedge_ticker, model_path)
+                elif strategy_name == 'Cash':
+                    # Cash Strategy 沒有 hedge_ticker
+                    strategy = strategy_class(stock_ticker)
                 elif hedge_ticker:
+                    # 其他有避險資產的策略
                     strategy = strategy_class(stock_ticker, hedge_ticker)
                 else:
                     strategy = strategy_class(stock_ticker)
@@ -514,7 +824,11 @@ def run_backtest_new():
                 # 每日報酬率數據
                 'dates': results['dates'],
                 'portfolio_value': results['portfolio_value'],
-                'returns': results['returns']
+                'returns': results['returns'],
+                # 每日持倉記錄
+                'daily_positions': results.get('daily_positions', []),
+                # 每日現金餘額記錄
+                'daily_cash': results.get('daily_cash', [])
             })
             
             print(f"[Info] {strategy_name} 回測完成")
@@ -528,19 +842,39 @@ def run_backtest_new():
             print("[Error] 沒有策略執行成功")
             return
         
-        # 輸出結果到 CSV
+        # 檢查 openpyxl 是否已安裝
+        try:
+            import openpyxl
+        except ImportError:
+            print("[Error] 需要安裝 openpyxl 才能輸出 Excel 檔案")
+            print("       請執行: pip install openpyxl")
+            return
+        
+        # 輸出結果到 Excel
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
         
         # 建立結果目錄
         results_dir = 'results'
         os.makedirs(results_dir, exist_ok=True)
         
-        # 輸出回測結果摘要
+        # 收集所有用到的 ticker
+        all_tickers = set()
+        for r in all_results:
+            if r['stock_ticker']:
+                all_tickers.add(r['stock_ticker'])
+            if r['hedge_ticker']:
+                all_tickers.add(r['hedge_ticker'])
+        
+        # 取得股票名稱對照表
+        print("\n[步驟 1] 取得股票名稱對照表...")
+        ticker_names = _get_ticker_names(list(all_tickers))
+        
+        # 建立摘要 DataFrame（第一張工作表）
         summary_df = pd.DataFrame([
             {
                 '策略名稱': r['strategy_name'],
                 '股票代號': r['stock_ticker'],
-                '避險資產': r['hedge_ticker'],
+                '避險資產': r['hedge_ticker'] if r['hedge_ticker'] else '無',
                 '總報酬率(%)': round(r['total_return'], 2),
                 '年化報酬率(%)': round(r['annualized_return'], 2),
                 '波動率(%)': round(r['volatility'], 2),
@@ -553,32 +887,59 @@ def run_backtest_new():
             for r in all_results
         ])
         
-        summary_path = f'{results_dir}/backtest_results_new_{timestamp}.csv'
-        summary_df.to_csv(summary_path, index=False, encoding='utf-8-sig')
-        print(f"\n[Info] 回測結果摘要已輸出：{summary_path}")
+        # 建立 Excel 檔案
+        excel_path = f'{results_dir}/backtest_results_new_{timestamp}.xlsx'
+        print(f"\n[步驟 2] 輸出 Excel 檔案：{excel_path}")
         
-        # 輸出每個策略的詳細交易記錄
-        for r in all_results:
-            strategy_name = r['strategy_name']
-            if r['trades']:
-                trades_df = pd.DataFrame(r['trades'])
-                trades_path = f'{results_dir}/position_changes_{strategy_name}_new_{timestamp}.csv'
-                trades_df.to_csv(trades_path, index=False, encoding='utf-8-sig')
-                print(f"[Info] {strategy_name} 交易記錄已輸出：{trades_path}")
+        with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
+            # 第一張工作表：策略摘要
+            summary_df.to_excel(writer, sheet_name='策略摘要', index=False)
             
-            # 輸出每日報酬率
-            if r['dates'] and r['portfolio_value'] and r['returns']:
-                returns_series = pd.Series(r['returns']).fillna(0)
-                cumulative_returns = (1 + returns_series).cumprod().sub(1).mul(100)
-                daily_df = pd.DataFrame({
-                    '日期': r['dates'],
-                    '投資組合價值': r['portfolio_value'],
-                    '每日報酬率(%)': [ret * 100 for ret in r['returns']],
-                    '累積報酬率(%)': cumulative_returns.tolist()
-                })
-                daily_path = f'{results_dir}/daily_returns_{strategy_name}_new_{timestamp}.csv'
-                daily_df.to_csv(daily_path, index=False, encoding='utf-8-sig')
-                print(f"[Info] {strategy_name} 每日報酬率已輸出：{daily_path}")
+            # 為每個策略建立工作表
+            for r in all_results:
+                strategy_name = r['strategy_name']
+                sheet_name = STRATEGY_NAME_MAP.get(strategy_name, strategy_name[:31])
+                
+                # 合併每日數據與交易記錄
+                if r['dates'] and r['portfolio_value'] and r['returns']:
+                    # 確保 daily_positions 存在且長度正確
+                    daily_positions = r.get('daily_positions', [])
+                    
+                    if not daily_positions or len(daily_positions) != len(r['dates']):
+                        # 如果 daily_positions 不存在或長度不匹配，使用空列表
+                        print(f"[Warning] {strategy_name} 策略的 daily_positions 不存在或長度不匹配（daily_positions: {len(daily_positions) if daily_positions else 0}, dates: {len(r['dates'])}），使用空列表")
+                        daily_positions = [{}] * len(r['dates']) if r['dates'] else []
+                    
+                    # 取得每日現金餘額
+                    daily_cash = r.get('daily_cash')
+                    
+                    if not daily_cash or len(daily_cash) != len(r['dates']):
+                        # 如果 daily_cash 不存在或長度不匹配，使用 None
+                        daily_cash = None
+                    
+                    merged_df = _merge_daily_and_trades(
+                        r['dates'], 
+                        r['portfolio_value'], 
+                        r['returns'], 
+                        r['trades'],
+                        ticker_names,
+                        daily_positions,  # 傳入每日持倉記錄
+                        daily_cash  # 傳入每日現金餘額
+                    )
+                    
+                    # 寫入數據（直接從第1行開始）
+                    merged_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    
+                    print(f"      - 工作表 '{sheet_name}' 已建立（{len(merged_df)} 筆記錄）")
+                else:
+                    # 如果沒有每日數據，建立空的工作表
+                    empty_df = pd.DataFrame(columns=['日期', '投資組合價值', '每日報酬率(%)', '累積報酬率(%)', 
+                                                     '動作', '總交易量(價格)', '盈虧', '稅費'])
+                    empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    print(f"      - 工作表 '{sheet_name}' 已建立（無數據）")
+        
+        print(f"\n[Info] Excel 檔案已輸出：{excel_path}")
+        print(f"       包含 {len(all_results) + 1} 個工作表（1 個摘要 + {len(all_results)} 個策略）")
         
         print("\n[完成] 所有回測結果已輸出")
         

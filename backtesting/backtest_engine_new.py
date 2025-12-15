@@ -9,6 +9,8 @@ from datetime import datetime
 import os
 import json
 import sys
+import time
+import math
 
 # 添加專案根目錄到路徑
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -39,6 +41,8 @@ class BacktestEngineNew:
         self.returns = []  # 每日報酬率
         self.trades = []  # 交易記錄
         self.dates = []  # 日期列表
+        self.daily_positions = []  # 每日持倉記錄 [{ticker: shares}, ...]
+        self.daily_cash = []  # 每日現金餘額記錄
         
         # 缺失價格警告追蹤
         self._missing_price_warnings = []
@@ -425,6 +429,8 @@ class BacktestEngineNew:
         self.returns = []
         self.trades = []
         self.dates = []
+        self.daily_positions = []
+        self.daily_cash = []
         self._missing_price_warnings = []
         
         # 分批執行追蹤機制
@@ -503,49 +509,138 @@ class BacktestEngineNew:
             processed_tickers = set()  # 避免重複處理
             
             for ticker, split_order in list(split_orders.items()):
-                if ticker not in price_dict or ticker in processed_tickers:
+                # 檢查是否還有剩餘天數
+                if split_order['days_remaining'] < 0:
+                    # 如果已經沒有剩餘天數，移除追蹤
+                    del split_orders[ticker]
                     continue
                 
-                # 檢查是否還有剩餘天數
-                if split_order['days_remaining'] > 0:
-                    # 計算今天要執行的比例
-                    if split_order['days_remaining'] == 1:
-                        # 最後一天：執行剩餘的所有比例
-                        today_percent = split_order['total_percent'] - split_order['executed_percent']
-                    else:
-                        # 其他天：平均分配（每天 20%）
-                        today_percent = split_order['total_percent'] / 5
-                    
-                    # 建立今天要執行的訂單
-                    today_order = {
-                        'action': split_order['action'],
-                        'ticker': ticker,
-                        'percent': today_percent,
-                        'trade_step': split_order.get('trade_step'),
-                        'is_split_order': True,
-                        'signal_score': split_order.get('signal_score'),
-                        'signal_text': split_order.get('signal_text')
-                    }
-                    
-                    # 如果是賣出且需要觸發避險資產買進
-                    if split_order['action'] == 'sell' and split_order.get('trigger_hedge_buy', False):
-                        hedge_ticker = split_order.get('hedge_ticker')
-                        if hedge_ticker:
-                            # 標記需要在賣出時同步買進避險資產（使用賣出得到的現金）
-                            today_order['trigger_hedge_buy'] = True
-                            today_order['hedge_ticker'] = hedge_ticker
-                            today_order['hedge_trade_step'] = split_order.get('hedge_trade_step')
-                    
-                    orders_to_execute.append(today_order)
-                    processed_tickers.add(ticker)
-                    
-                    # 更新進度
-                    split_order['executed_percent'] += today_percent
+                # 如果 ticker 不在 price_dict 中（非交易日或無價格資料），跳過執行但減少剩餘天數
+                if ticker not in price_dict:
+                    # 減少剩餘天數，但不執行訂單
                     split_order['days_remaining'] -= 1
-                    
-                    # 如果已完成，移除追蹤
-                    if split_order['days_remaining'] == 0:
+                    # 如果已經沒有剩餘天數，移除追蹤
+                    if split_order['days_remaining'] < 0:
                         del split_orders[ticker]
+                    continue
+                
+                # 如果已經處理過該 ticker，跳過
+                if ticker in processed_tickers:
+                    continue
+                
+                # 第6天（days_remaining == 0）：檢查剩餘現金是否足夠買一張
+                if split_order['days_remaining'] == 0:
+                    # 第6天：檢查剩餘現金並買進
+                    if split_order['action'] == 'buy':
+                        # 檢查剩餘現金是否足夠買一張
+                        if ticker in price_dict:
+                            price = price_dict[ticker]
+                            min_shares = 1000
+                            min_cost = min_shares * price + self.calculate_commission(min_shares * price)
+                            
+                            if self.cash >= min_cost:
+                                # 使用所有可用現金買進
+                                available_after_commission = self.cash / (1 + self.commission_rate)
+                                shares_float = available_after_commission / price
+                                shares = int(math.floor(shares_float / 1000)) * 1000
+                                
+                                if shares >= min_shares:
+                                    # 執行買進
+                                    today_order = {
+                                        'action': 'buy',
+                                        'ticker': ticker,
+                                        'percent': 1.0,  # 使用所有可用現金
+                                        'trade_step': split_order.get('trade_step'),
+                                        'is_split_order': True,
+                                        'is_last_split_day': True,  # 標記為最後一天
+                                        'signal_score': split_order.get('signal_score'),
+                                        'signal_text': split_order.get('signal_text'),
+                                        'initial_portfolio_value': None,  # 第6天不使用初始價值
+                                        'is_day6_check': True  # 標記為第6天檢查
+                                    }
+                                    orders_to_execute.append(today_order)
+                                    processed_tickers.add(ticker)
+                    
+                    # 如果是賣出且需要觸發避險資產買進，第6天也要檢查
+                    elif split_order['action'] == 'sell' and split_order.get('trigger_hedge_buy', False):
+                        hedge_ticker = split_order.get('hedge_ticker')
+                        if hedge_ticker and hedge_ticker in price_dict:
+                            hedge_price = price_dict[hedge_ticker]
+                            min_hedge_shares = 1000
+                            min_hedge_cost = min_hedge_shares * hedge_price + self.calculate_commission(min_hedge_shares * hedge_price)
+                            
+                            if self.cash >= min_hedge_cost:
+                                # 第6天：使用所有可用現金買進避險資產
+                                available_after_commission = self.cash / (1 + self.commission_rate)
+                                hedge_shares_float = available_after_commission / hedge_price
+                                hedge_shares = int(math.floor(hedge_shares_float / 1000)) * 1000
+                                
+                                if hedge_shares >= min_hedge_shares:
+                                    # 執行避險資產買進（使用特殊標記，讓 _execute_order 知道這是第6天檢查）
+                                    hedge_order = {
+                                        'action': 'buy',
+                                        'ticker': hedge_ticker,
+                                        'percent': 1.0,
+                                        'trade_step': split_order.get('hedge_trade_step'),
+                                        'is_split_order': True,
+                                        'is_last_split_day': True,
+                                        'signal_score': split_order.get('signal_score'),
+                                        'signal_text': split_order.get('signal_text'),
+                                        'is_day6_check': True,  # 標記為第6天檢查
+                                        'is_hedge_buy': True  # 標記為避險資產買進
+                                    }
+                                    orders_to_execute.append(hedge_order)
+                                    processed_tickers.add(hedge_ticker)
+                    
+                    # 移除追蹤（無論是否執行）
+                    del split_orders[ticker]
+                    continue
+                
+                # 計算今天要執行的比例（前5天）
+                if split_order['days_remaining'] == 1:
+                    # 第5天：執行剩餘的所有比例
+                    today_percent = split_order['total_percent'] - split_order['executed_percent']
+                else:
+                    # 前4天：平均分配（每天 20%）
+                    today_percent = split_order['total_percent'] / 5
+                
+                # 建立今天要執行的訂單
+                is_last_day = (split_order['days_remaining'] == 1)
+                today_order = {
+                    'action': split_order['action'],
+                    'ticker': ticker,
+                    'percent': today_percent,
+                    'trade_step': split_order.get('trade_step'),
+                    'is_split_order': True,
+                    'is_last_split_day': is_last_day,  # 標記是否為最後一天
+                    'signal_score': split_order.get('signal_score'),
+                    'signal_text': split_order.get('signal_text'),
+                    # 傳遞初始持倉數量（用於賣出時計算固定數量）
+                    'initial_shares': split_order.get('initial_shares'),
+                    # 傳遞初始投資組合價值（用於買進時計算固定金額）
+                    'initial_portfolio_value': split_order.get('initial_portfolio_value')
+                }
+                
+                # 如果是賣出且需要觸發避險資產買進
+                if split_order['action'] == 'sell' and split_order.get('trigger_hedge_buy', False):
+                    hedge_ticker = split_order.get('hedge_ticker')
+                    if hedge_ticker:
+                        # 標記需要在賣出時同步買進避險資產（使用賣出得到的現金）
+                        today_order['trigger_hedge_buy'] = True
+                        today_order['hedge_ticker'] = hedge_ticker
+                        today_order['hedge_trade_step'] = split_order.get('hedge_trade_step')
+                
+                orders_to_execute.append(today_order)
+                processed_tickers.add(ticker)
+                
+                # 更新進度
+                split_order['executed_percent'] += today_percent
+                split_order['days_remaining'] -= 1
+                
+                # 如果已完成（days_remaining < 0），移除追蹤
+                # 注意：days_remaining == 0 時保留，用於第6天檢查剩餘現金
+                if split_order['days_remaining'] < 0:
+                    del split_orders[ticker]
             
             # 2. 執行策略，取得新訂單
             orders = strategy_func(strategy_state, date, row_dict, price_dict, self.positions, portfolio_value_before)
@@ -561,11 +656,20 @@ class BacktestEngineNew:
                     if order.get('trigger_hedge_buy', False):
                         hedge_ticker = order.get('hedge_ticker')
                     
+                    # 記錄初始持倉數量（用於賣出時計算固定數量）
+                    # 記錄初始投資組合價值（用於買進時計算固定金額）
+                    initial_shares = None
+                    initial_portfolio_value = None
+                    if order['action'] == 'sell':
+                        initial_shares = self.positions.get(ticker, 0)
+                    elif order['action'] == 'buy':
+                        initial_portfolio_value = self._calculate_portfolio_value(price_dict)
+                    
                     split_orders[ticker] = {
                         'action': order['action'],
                         'total_percent': order['percent'],
                         'executed_percent': 0.0,
-                        'days_remaining': 5,  # 固定5天
+                        'days_remaining': 6,  # 5天正常執行 + 1天檢查剩餘現金
                         'start_date': date,
                         'trade_step': order.get('trade_step'),
                         'signal_score': order.get('signal_score'),
@@ -573,7 +677,11 @@ class BacktestEngineNew:
                         # 如果是賣出且需要觸發避險資產買進
                         'trigger_hedge_buy': order.get('trigger_hedge_buy', False),
                         'hedge_ticker': hedge_ticker,
-                        'hedge_trade_step': order.get('hedge_trade_step')
+                        'hedge_trade_step': order.get('hedge_trade_step'),
+                        # 記錄初始持倉數量（用於賣出時計算固定數量）
+                        'initial_shares': initial_shares,
+                        # 記錄初始投資組合價值（用於買進時計算固定金額）
+                        'initial_portfolio_value': initial_portfolio_value
                     }
                     
                     # 注意：分批訂單會在後續的交易日中執行，今天不執行
@@ -589,9 +697,11 @@ class BacktestEngineNew:
             # 計算投資組合價值（執行策略後）
             portfolio_value = self._calculate_portfolio_value(price_dict)
             
-            # 記錄日期和價值
+            # 記錄日期、價值和持倉
             self.dates.append(date)
             self.portfolio_value.append(portfolio_value)
+            self.daily_positions.append(dict(self.positions))  # 記錄當日持倉快照
+            self.daily_cash.append(self.cash)  # 記錄當日現金餘額
             
             # 計算報酬率
             if len(self.portfolio_value) == 1:
@@ -644,7 +754,9 @@ class BacktestEngineNew:
             'total_return': (self.portfolio_value[-1] - self.initial_capital) / self.initial_capital if self.portfolio_value else 0,
             'final_positions': final_positions,
             'final_cash': self.cash,
-            'positions': self.positions
+            'positions': self.positions,
+            'daily_positions': self.daily_positions,  # 每日持倉記錄
+            'daily_cash': self.daily_cash  # 每日現金餘額記錄
         }
     
     def _execute_order(self, order, date, price_dict):
@@ -671,33 +783,112 @@ class BacktestEngineNew:
         price = price_dict[ticker]
         
         if action == 'buy':
-            # 計算投資組合價值
-            portfolio_value = self._calculate_portfolio_value(price_dict)
-            
             # 計算買進金額（根據 percent）
             percent = order.get('percent', 1.0)
-            buy_value = portfolio_value * percent
+            is_split_order = order.get('is_split_order', False)
+            is_last_split_day = order.get('is_last_split_day', False)
+            is_day6_check = order.get('is_day6_check', False)  # 第6天檢查剩餘現金
+            initial_portfolio_value = order.get('initial_portfolio_value')  # 分批執行時的初始投資組合價值
             
-            # 計算手續費
-            commission = self.calculate_commission(buy_value)
-            total_cost = buy_value + commission
+            # 檢查可用現金是否足夠買至少一張（1000股）
+            min_shares = 1000  # 最小買進單位：一張
+            min_cost = min_shares * price + self.calculate_commission(min_shares * price)
             
-            # 檢查現金是否足夠
-            if self.cash < total_cost:
-                # 現金不足，使用全部現金（扣除手續費）
-                available_cash = max(0, self.cash - commission)
-                if available_cash <= 0:
-                    return  # 連手續費都不夠
-                buy_value = available_cash
+            if self.cash < min_cost:
+                # 現金不足買一張，保留現金作為預備金，不買進
+                return
+            
+            # 第6天檢查：使用所有可用現金買進
+            if is_day6_check:
+                # 使用所有可用現金買進
+                available_after_commission = self.cash / (1 + self.commission_rate)
+                shares_float = available_after_commission / price
+                shares = int(math.floor(shares_float / 1000)) * 1000  # 向下取整到千股
+                # 確保至少買一張
+                if shares < min_shares:
+                    shares = 0  # 不足一張，不買進
+                # 確保不會超過可用現金
+                if shares > 0:
+                    actual_cost = shares * price + self.calculate_commission(shares * price)
+                    while actual_cost > self.cash and shares >= min_shares:
+                        shares -= 1000
+                        if shares < min_shares:
+                            shares = 0  # 不足一張，不買進
+                            break
+                        actual_cost = shares * price + self.calculate_commission(shares * price)
+            # 如果是分批執行的最後一天（第5天），使用所有可用現金買進，避免剩餘現金
+            elif is_split_order and is_last_split_day:
+                # 最後一天：使用所有可用現金買進，忽略 buy_value
+                available_cash = self.cash / (1 + self.commission_rate)
+                shares_float = available_cash / price
+                shares = int(math.floor(shares_float / 1000)) * 1000  # 向下取整到千股
+                # 確保至少買一張
+                if shares < min_shares:
+                    shares = 0  # 不足一張，不買進
+                # 確保不會超過可用現金
+                if shares > 0:
+                    actual_cost = shares * price + self.calculate_commission(shares * price)
+                    while actual_cost > self.cash and shares >= min_shares:
+                        shares -= 1000
+                        if shares < min_shares:
+                            shares = 0  # 不足一張，不買進
+                            break
+                        actual_cost = shares * price + self.calculate_commission(shares * price)
+            else:
+                # 其他情況：按原邏輯計算（使用 buy_value）
+                # 如果是分批執行，使用初始投資組合價值計算固定金額，確保每天買進金額一致
+                if is_split_order and initial_portfolio_value is not None and initial_portfolio_value > 0:
+                    buy_value = initial_portfolio_value * percent
+                else:
+                    # 非分批執行：使用當前投資組合價值計算
+                    portfolio_value = self._calculate_portfolio_value(price_dict)
+                    buy_value = portfolio_value * percent
+                
+                # 計算手續費
+                commission = self.calculate_commission(buy_value)
                 total_cost = buy_value + commission
-            
-            # 計算股數
-            shares = int(buy_value / price / 1000) * 1000  # 以千股為單位
+                
+                # 檢查現金是否足夠
+                if self.cash < total_cost:
+                    # 現金不足，使用全部現金（扣除手續費）
+                    available_cash = max(0, self.cash - commission)
+                    if available_cash <= 0:
+                        return  # 連手續費都不夠
+                    buy_value = available_cash
+                    total_cost = buy_value + commission
+                
+                # 計算股數（向下取整）
+                shares = int(buy_value / price / 1000) * 1000  # 以千股為單位
+                # 確保至少買一張
+                if shares < min_shares:
+                    shares = 0  # 不足一張，不買進
+                # 檢查是否超過可用現金
+                if shares > 0:
+                    actual_cost = shares * price + self.calculate_commission(shares * price)
+                    if actual_cost > self.cash:
+                        # 調整為可用現金能買的最大股數
+                        available_cash = self.cash / (1 + self.commission_rate)
+                        shares_float = available_cash / price
+                        shares = int(math.floor(shares_float / 1000)) * 1000
+                        # 確保至少買一張
+                        if shares < min_shares:
+                            shares = 0  # 不足一張，不買進
+                        else:
+                            actual_cost = shares * price + self.calculate_commission(shares * price)
+                            while actual_cost > self.cash and shares >= min_shares:
+                                shares -= 1000
+                                if shares < min_shares:
+                                    shares = 0  # 不足一張，不買進
+                                    break
+                                actual_cost = shares * price + self.calculate_commission(shares * price)
             
             if shares <= 0:
                 return
             
-            actual_cost = shares * price + commission
+            # 重新計算手續費（基於實際買進金額）
+            actual_buy_amount = shares * price
+            actual_commission = self.calculate_commission(actual_buy_amount)
+            actual_cost = actual_buy_amount + actual_commission
             
             # 更新現金和持倉
             self.cash -= actual_cost
@@ -711,8 +902,8 @@ class BacktestEngineNew:
                 '標的代號': ticker,
                 '股數': shares,
                 '價格': round(price, 2),
-                '成本': round(shares * price, 2),
-                '手續費': round(commission, 2),
+                '成本': round(actual_buy_amount, 2),
+                '手續費': round(actual_commission, 2),
                 '總成本': round(actual_cost, 2),
                 '景氣燈號分數': order.get('signal_score'),
                 '景氣燈號': order.get('signal_text'),
@@ -734,7 +925,23 @@ class BacktestEngineNew:
             
             # 計算賣出股數（根據 percent）
             percent = order.get('percent', 1.0)
-            shares = int(current_shares * percent / 1000) * 1000  # 以千股為單位
+            is_last_split_day = order.get('is_last_split_day', False)
+            is_split_order = order.get('is_split_order', False)
+            initial_shares = order.get('initial_shares')  # 分批執行時的初始持倉數量
+            
+            # 如果 percent >= 1.0 或是最後一批（標記為 is_last_split_day），賣出所有持倉
+            # 這樣可以確保分批執行時最後一天能完全清倉
+            if percent >= 1.0 or is_last_split_day:
+                shares = current_shares  # 賣出所有持倉，確保完全清倉
+            elif is_split_order and initial_shares is not None and initial_shares > 0:
+                # 分批執行：使用初始持倉數量計算固定數量，確保每天賣出量一致
+                # percent 已經是每天的百分比（例如 0.2 = 20%），所以直接計算
+                # 使用向上取整，確保每天賣出量足夠，最後一天會賣出剩餘部分
+                daily_shares_float = initial_shares * percent  # 每天應該賣出的股數
+                shares = int(math.ceil(daily_shares_float / 1000)) * 1000  # 向上取整到千股
+            else:
+                # 非分批執行：使用當前持倉數量計算
+                shares = int(current_shares * percent / 1000) * 1000  # 以千股為單位
             
             if shares <= 0:
                 return
@@ -772,33 +979,81 @@ class BacktestEngineNew:
             
             self.trades.append(trade_record)
             
-            # 檢查是否需要觸發避險資產買進（用賣出得到的現金買進）
+            # 檢查是否需要觸發避險資產買進
+            # 第五天流程：賣出原先資產 -> 計算持有現金能買的張數 -> 買進
+            # 前四天：使用20%賣出得到的現金買進
             if order.get('trigger_hedge_buy', False):
                 hedge_ticker = order.get('hedge_ticker')
                 if hedge_ticker and hedge_ticker in price_dict:
-                    # 使用賣出得到的現金買進避險資產（不超過售出總額）
                     hedge_price = price_dict[hedge_ticker]
-                    available_cash = net_revenue  # 使用賣出得到的淨收入
+                    is_last_split_day = order.get('is_last_split_day', False)
                     
-                    if available_cash > 0 and hedge_price > 0:
-                        # 計算可買進的股數（以千股為單位）
-                        hedge_shares = int(available_cash / hedge_price / 1000) * 1000
+                    # 檢查可用現金是否足夠買至少一張（1000股）
+                    min_hedge_shares = 1000
+                    min_hedge_cost = min_hedge_shares * hedge_price + self.calculate_commission(min_hedge_shares * hedge_price)
+                    
+                    if self.cash >= min_hedge_cost and hedge_price > 0:
+                        if is_last_split_day:
+                            # 第五天：使用所有可用現金買進（賣出後的所有現金）
+                            # 計算能買的最大張數
+                            available_after_commission = self.cash / (1 + self.commission_rate)
+                            hedge_shares_float = available_after_commission / hedge_price
+                            hedge_shares = int(math.floor(hedge_shares_float / 1000)) * 1000  # 向下取整到千股
+                            
+                            # 確保至少買一張
+                            if hedge_shares < min_hedge_shares:
+                                hedge_shares = 0  # 不足一張，不買進
+                            
+                            # 確保不會超過可用現金
+                            if hedge_shares > 0:
+                                hedge_cost = hedge_shares * hedge_price
+                                hedge_commission = self.calculate_commission(hedge_cost)
+                                hedge_total_cost = hedge_cost + hedge_commission
+                                
+                                # 如果超過可用現金，調整股數
+                                while hedge_total_cost > self.cash and hedge_shares >= min_hedge_shares:
+                                    hedge_shares -= 1000
+                                    if hedge_shares < min_hedge_shares:
+                                        hedge_shares = 0  # 不足一張，不買進
+                                        break
+                                    hedge_cost = hedge_shares * hedge_price
+                                    hedge_commission = self.calculate_commission(hedge_cost)
+                                    hedge_total_cost = hedge_cost + hedge_commission
+                        else:
+                            # 前四天：使用當天賣出得到的現金買進（net_revenue）
+                            # 但也要考慮累積的現金，盡可能買進更多
+                            available_cash = self.cash  # 使用所有可用現金（包括之前累積的）
+                            hedge_shares_float = available_cash / hedge_price
+                            hedge_shares = int(math.floor(hedge_shares_float / 1000)) * 1000  # 向下取整到千股
+                            
+                            # 確保至少買一張
+                            if hedge_shares < min_hedge_shares:
+                                hedge_shares = 0  # 不足一張，不買進
+                            
+                            # 確保不超過可用現金
+                            if hedge_shares > 0:
+                                hedge_cost = hedge_shares * hedge_price
+                                hedge_commission = self.calculate_commission(hedge_cost)
+                                hedge_total_cost = hedge_cost + hedge_commission
+                                
+                                if hedge_total_cost > available_cash:
+                                    # 調整股數
+                                    available_after_commission = available_cash / (1 + self.commission_rate)
+                                    hedge_shares_float = available_after_commission / hedge_price
+                                    hedge_shares = int(math.floor(hedge_shares_float / 1000)) * 1000
+                                    if hedge_shares < min_hedge_shares:
+                                        hedge_shares = 0  # 不足一張，不買進
+                                    else:
+                                        hedge_cost = hedge_shares * hedge_price
+                                        hedge_commission = self.calculate_commission(hedge_cost)
+                                        hedge_total_cost = hedge_cost + hedge_commission
                         
                         if hedge_shares > 0:
                             hedge_cost = hedge_shares * hedge_price
                             hedge_commission = self.calculate_commission(hedge_cost)
                             hedge_total_cost = hedge_cost + hedge_commission
                             
-                            # 確保不超過可用現金
-                            if hedge_total_cost > available_cash:
-                                # 調整股數
-                                available_after_commission = available_cash - hedge_commission
-                                if available_after_commission > 0:
-                                    hedge_shares = int(available_after_commission / hedge_price / 1000) * 1000
-                                    hedge_cost = hedge_shares * hedge_price
-                                    hedge_total_cost = hedge_cost + hedge_commission
-                            
-                            if hedge_shares > 0 and hedge_total_cost <= available_cash:
+                            if hedge_total_cost <= self.cash:
                                 # 執行買進
                                 self.cash -= hedge_total_cost
                                 
@@ -879,6 +1134,7 @@ class BacktestEngineNew:
         for ticker, shares in self.positions.items():
             if ticker in price_dict:
                 total_value += shares * price_dict[ticker]
+        
         return total_value
     
     def _calculate_portfolio_value(self, price_dict):
