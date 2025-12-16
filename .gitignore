@@ -193,3 +193,5 @@ orange_data_export/006208_2330_price_future_predict_.ows
 
 # Orange 做成的模型檔案不上傳
 orange_data_export/tree.pkcls
+orange_data_export/tree2.pkcls
+orange_data_export/tree3.pkcls

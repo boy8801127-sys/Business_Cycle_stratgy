@@ -84,7 +84,7 @@ def _get_ticker_names(tickers):
     return ticker_names
 
 
-def _merge_daily_and_trades(dates, portfolio_values, returns, trades, ticker_names, daily_positions=None, daily_cash=None):
+def _merge_daily_and_trades(dates, portfolio_values, returns, trades, ticker_names, daily_positions=None, daily_cash=None, daily_predicted_prices=None, daily_prediction_debug=None):
     """
     合併每日數據與交易記錄
     
@@ -96,6 +96,8 @@ def _merge_daily_and_trades(dates, portfolio_values, returns, trades, ticker_nam
     - ticker_names: 股票名稱對照表
     - daily_positions: 每日持倉記錄列表 [{ticker: shares}, ...]
     - daily_cash: 每日現金餘額列表
+    - daily_predicted_prices: 每日預測價格列表（Orange 策略使用）
+    - daily_prediction_debug: 每日預測調試信息列表（Orange 策略使用）
     
     返回:
     - DataFrame: 合併後的數據
@@ -172,12 +174,49 @@ def _merge_daily_and_trades(dates, portfolio_values, returns, trades, ticker_nam
         # 取得當日現金餘額
         cash_balance = daily_cash[i] if daily_cash and i < len(daily_cash) else None
         
+        # 取得當日預測價格和調試信息
+        predicted_price = daily_predicted_prices[i] if daily_predicted_prices and i < len(daily_predicted_prices) else None
+        prediction_debug = daily_prediction_debug[i] if daily_prediction_debug and i < len(daily_prediction_debug) else {}
+        
+        # 格式化預測調試信息
+        prediction_status = prediction_debug.get('prediction_status', 'unknown')
+        missing_features = prediction_debug.get('missing_features', [])
+        error_message = prediction_debug.get('error_message')
+        selected_model = prediction_debug.get('selected_model')
+        
+        # 建立預測狀態描述
+        if prediction_status == 'success':
+            prediction_status_text = '成功'
+        elif prediction_status == 'model_unavailable':
+            prediction_status_text = '模型不可用'
+        elif prediction_status == 'features_missing':
+            prediction_status_text = f'特徵缺失 ({len(missing_features)}個)'
+        elif prediction_status == 'prediction_error':
+            prediction_status_text = '預測錯誤'
+        elif prediction_status == 'no_model_for_price':
+            prediction_status_text = '無適合價格的模型'
+        else:
+            prediction_status_text = '未知'
+        
+        # 如果有選中的模型，在狀態中顯示
+        if selected_model:
+            prediction_status_text += f' [{selected_model}]'
+        
+        # 建立缺失特徵字串
+        missing_features_text = '; '.join(missing_features[:3])  # 只顯示前3個
+        if len(missing_features) > 3:
+            missing_features_text += f' ... (共{len(missing_features)}個)'
+        
         # 每天只建立一行（合併同一天的所有交易）
         row = {
             '日期': date_str,
             '投資組合價值': round(portfolio_values[i], 2) if i < len(portfolio_values) else None,
             '每日報酬率(%)': round(returns[i] * 100, 4) if returns and i < len(returns) and returns[i] is not None else None,
             '累積報酬率(%)': round(cumulative_returns.iloc[i], 2) if i < len(cumulative_returns) else None,
+            '模型預測價格': round(predicted_price, 2) if predicted_price is not None else None,
+            '預測狀態': prediction_status_text,
+            '缺失特徵': missing_features_text if missing_features else None,
+            '預測錯誤訊息': error_message if error_message else None,
             '持倉': '',  # 先設為空，處理完交易後再格式化（包含平均成本）
             '現金部位': round(cash_balance, 2) if cash_balance is not None else None,
             '動作': '',
@@ -763,9 +802,23 @@ def run_backtest_new():
                 if strategy_name == 'BuyAndHold':
                     strategy = strategy_class(stock_ticker)
                 elif strategy_name == 'OrangePrediction':
-                    # [Orange 相關功能] Orange 預測策略需要模型路徑
-                    model_path = 'orange_data_export/tree.pkcls'
-                    strategy = strategy_class(stock_ticker, hedge_ticker, model_path)
+                    # [Orange 相關功能] Orange 預測策略使用多模型模式（根據價格範圍選擇）
+                    # 配置三個模型的價格範圍（根據 K-means 分群結果）
+                    # tree3: 47.1±12.2 ~ 79.7±0.6 (約 34.9 ~ 80.3) - 低價群組
+                    # tree2: 77.6±3.5 ~ 111.5±19.6 (約 74.1 ~ 131.1) - 中價群組
+                    # tree: 104.1±15.3 ~ 144.6±20.6 (約 88.8 ~ 165.2) - 高價群組
+                    model_price_ranges = [
+                        (0, 80, 'orange_data_export/tree3.pkcls'),      # 低價群組（tree3: 34.9 ~ 80.3）
+                        (80, 132, 'orange_data_export/tree2.pkcls'),     # 中價群組（tree2: 74.1 ~ 131.1）
+                        (132, float('inf'), 'orange_data_export/tree.pkcls')  # 高價群組（tree: 88.8 ~ 165.2）
+                    ]
+                    strategy = strategy_class(
+                        stock_ticker, 
+                        hedge_ticker, 
+                        model_path=None,  # 多模型模式不需要單一 model_path
+                        use_multi_model=True,
+                        model_price_ranges=model_price_ranges
+                    )
                 elif strategy_name == 'Cash':
                     # Cash Strategy 沒有 hedge_ticker
                     strategy = strategy_class(stock_ticker)
@@ -828,7 +881,11 @@ def run_backtest_new():
                 # 每日持倉記錄
                 'daily_positions': results.get('daily_positions', []),
                 # 每日現金餘額記錄
-                'daily_cash': results.get('daily_cash', [])
+                'daily_cash': results.get('daily_cash', []),
+                # 每日預測價格記錄（Orange 策略使用）
+                'daily_predicted_prices': results.get('daily_predicted_prices', []),
+                # 每日預測調試信息記錄（Orange 策略使用）
+                'daily_prediction_debug': results.get('daily_prediction_debug', [])
             })
             
             print(f"[Info] {strategy_name} 回測完成")
@@ -917,6 +974,14 @@ def run_backtest_new():
                         # 如果 daily_cash 不存在或長度不匹配，使用 None
                         daily_cash = None
                     
+                    # 確保 daily_prediction_debug 存在且長度正確
+                    daily_prediction_debug = r.get('daily_prediction_debug', [])
+                    
+                    if not daily_prediction_debug or len(daily_prediction_debug) != len(r['dates']):
+                        # 如果 daily_prediction_debug 不存在或長度不匹配，使用空字典列表
+                        print(f"[Warning] {strategy_name} 策略的 daily_prediction_debug 不存在或長度不匹配（daily_prediction_debug: {len(daily_prediction_debug) if daily_prediction_debug else 0}, dates: {len(r['dates'])}），使用空字典列表")
+                        daily_prediction_debug = [{}] * len(r['dates']) if r['dates'] else []
+                    
                     merged_df = _merge_daily_and_trades(
                         r['dates'], 
                         r['portfolio_value'], 
@@ -924,7 +989,9 @@ def run_backtest_new():
                         r['trades'],
                         ticker_names,
                         daily_positions,  # 傳入每日持倉記錄
-                        daily_cash  # 傳入每日現金餘額
+                        daily_cash,  # 傳入每日現金餘額
+                        r.get('daily_predicted_prices'),  # 傳入每日預測價格（Orange 策略使用）
+                        daily_prediction_debug  # 傳入每日預測調試信息（Orange 策略使用）
                     )
                     
                     # 寫入數據（直接從第1行開始）
@@ -934,6 +1001,7 @@ def run_backtest_new():
                 else:
                     # 如果沒有每日數據，建立空的工作表
                     empty_df = pd.DataFrame(columns=['日期', '投資組合價值', '每日報酬率(%)', '累積報酬率(%)', 
+                                                     '模型預測價格', '預測狀態', '缺失特徵', '預測錯誤訊息',
                                                      '動作', '總交易量(價格)', '盈虧', '稅費'])
                     empty_df.to_excel(writer, sheet_name=sheet_name, index=False)
                     print(f"      - 工作表 '{sheet_name}' 已建立（無數據）")

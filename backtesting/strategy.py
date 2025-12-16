@@ -34,14 +34,6 @@ class CycleStrategy:
         
         # 添加景氣燈號分數
         score = state.get('score')
-        # #region agent log
-        import json
-        import pandas as pd
-        # 記錄策略中使用的分數值（僅在關鍵日期）
-        if score is not None and (score == 12.0 or score == 35.0 or score == 38.0 or score == 40.0 or score == 16.0):
-            with open(r'd:\Business_Cycle_stratgy\.cursor\debug.log', 'a', encoding='utf-8') as f:
-                f.write(json.dumps({'sessionId': 'debug-session', 'runId': 'run1', 'hypothesisId': 'B', 'location': 'strategy.py:36', 'message': 'Creating trade_step with score from state', 'data': {'reason': reason, 'score_from_state': float(score) if score is not None else None}, 'timestamp': pd.Timestamp.now().timestamp() * 1000}) + '\n')
-        # #endregion
         if score is not None:
             conditions.append({'name': '景氣燈號分數', 'value': score})
         

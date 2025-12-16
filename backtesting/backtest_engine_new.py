@@ -43,6 +43,8 @@ class BacktestEngineNew:
         self.dates = []  # 日期列表
         self.daily_positions = []  # 每日持倉記錄 [{ticker: shares}, ...]
         self.daily_cash = []  # 每日現金餘額記錄
+        self.daily_predicted_prices = []  # 每日預測價格記錄（Orange 策略使用）
+        self.daily_prediction_debug = []  # 每日預測調試信息記錄（Orange 策略使用）
         
         # 缺失價格警告追蹤
         self._missing_price_warnings = []
@@ -431,6 +433,8 @@ class BacktestEngineNew:
         self.dates = []
         self.daily_positions = []
         self.daily_cash = []
+        self.daily_predicted_prices = []
+        self.daily_prediction_debug = []
         self._missing_price_warnings = []
         
         # 分批執行追蹤機制
@@ -703,6 +707,12 @@ class BacktestEngineNew:
             self.daily_positions.append(dict(self.positions))  # 記錄當日持倉快照
             self.daily_cash.append(self.cash)  # 記錄當日現金餘額
             
+            # 保存預測價格（從策略狀態中讀取，如果策略不支持則為 None）
+            predicted_price = strategy_state.get('predicted_price')
+            prediction_debug = strategy_state.get('prediction_debug', {})
+            self.daily_predicted_prices.append(predicted_price)
+            self.daily_prediction_debug.append(prediction_debug)
+            
             # 計算報酬率
             if len(self.portfolio_value) == 1:
                 self.returns.append(0.0)
@@ -756,7 +766,9 @@ class BacktestEngineNew:
             'final_cash': self.cash,
             'positions': self.positions,
             'daily_positions': self.daily_positions,  # 每日持倉記錄
-            'daily_cash': self.daily_cash  # 每日現金餘額記錄
+            'daily_cash': self.daily_cash,  # 每日現金餘額記錄
+            'daily_predicted_prices': self.daily_predicted_prices,  # 每日預測價格記錄
+            'daily_prediction_debug': self.daily_prediction_debug  # 每日預測調試信息記錄
         }
     
     def _execute_order(self, order, date, price_dict):
