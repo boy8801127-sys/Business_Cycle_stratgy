@@ -195,3 +195,47 @@ orange_data_export/006208_2330_price_future_predict_.ows
 orange_data_export/tree.pkcls
 orange_data_export/tree2.pkcls
 orange_data_export/tree3.pkcls
+
+# 敏感資訊和密鑰文件
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+config.json
+credentials.json
+*.credentials
+
+# API 密鑰和令牌
+*_api_key.txt
+*_token.txt
+*.secret
+
+# 個人配置和數據
+personal_data/
+private_keys/
+*.private
+
+# 臨時文件和備份
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# 大型數據文件（如果有的話）
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+# 但保留 Orange 模型文件的規則（已存在）
+
+# IDE 和編輯器設定（可選，但建議保留）
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 日誌文件
+*.log
+logs/

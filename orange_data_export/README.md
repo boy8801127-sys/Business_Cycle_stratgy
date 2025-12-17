@@ -41,7 +41,8 @@ python orange_data_export/export_for_prediction.py --help
 由於 Orange 工作流程檔案（.ows）是複雜的 XML 格式，建議您：
 
 1. **開啟 Orange**
-2. **按照 [Orange 預測指引](../docs/ORANGE_PREDICTION_GUIDE.md) 的說明手動建立工作流程**
+2. **按照 [Orange 模型整合報告](../docs/ORANGE_INTEGRATION_REPORT.md) 的說明手動建立工作流程**
+   - 詳細說明請參考「二、Orange 分析工作流程（濃縮版）」章節
 
 或者：
 
@@ -59,7 +60,7 @@ python orange_data_export/export_for_prediction.py --help
 6. **Predictions** 節點 → 產生預測
 7. **Regression Evaluation** 節點 → 評估模型
 
-詳細說明請參考 [Orange 預測指引](../docs/ORANGE_PREDICTION_GUIDE.md)。
+詳細說明請參考 [Orange 模型整合報告](../docs/ORANGE_INTEGRATION_REPORT.md) 的「二、Orange 分析工作流程（濃縮版）」章節。
 
 ## 資料欄位說明
 

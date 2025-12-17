@@ -279,5 +279,5 @@ Driver=SQLite3 ODBC Driver;Database=D:\all_data\taiwan_stock_all_data.db;
 1. 參考 [資料庫結構說明](DATABASE_SCHEMA.md) 了解各資料表的詳細結構
 2. 建立各種視覺化和報表
 3. 探索資料間的關聯性和趨勢
-4. 使用 [Orange 預測指引](ORANGE_PREDICTION_GUIDE.md) 進行進階分析
+4. 使用 [Orange 模型整合報告](ORANGE_INTEGRATION_REPORT.md) 進行進階分析
 

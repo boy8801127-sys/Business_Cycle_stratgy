@@ -219,7 +219,7 @@
 **主要功能**：
 - 載入 Orange 模型
 - 提取特徵並進行預測
-- 執行複合策略邏輯
+- 執行純均值回歸策略邏輯
 - 產生交易訂單
 
 **錯誤處理**：
@@ -296,7 +296,9 @@
 
 ---
 
-## 六、為什麼 Orange 模型無法用於當前量化交易模型
+## 六、為什麼 Orange 模型無法用於當前量化交易模型（歷史背景）
+
+> **注意**：本章節描述的是策略優化前的問題分析，現已通過改為純均值回歸策略解決。保留此章節作為歷史背景和技術參考。
 
 ### 6.1 根本原因分析
 
@@ -387,6 +389,7 @@
 4. 轉換為 Orange Table（使用預測用 Domain）
 5. 調用 model(table) 進行預測
 6. 提取預測值（從 Table.Y 或直接數組）
+7. 保存預測價格到 state（用於回測結果輸出）
 ```
 
 ### 7.3 策略執行流程
@@ -394,12 +397,13 @@
 ```python
 1. 檢查模型是否可用
 2. 提取特徵並預測價格
-3. 更新預測歷史
-4. 計算動量信號（需要連續N天確認）
+3. 保存預測價格到 state（用於回測結果輸出）
+4. 更新預測歷史（用於計算穩定性）
 5. 計算價格偏離度
-6. 檢查交易條件（動量 + 偏離度 + 持倉狀態）
-7. 計算風險調整倉位
-8. 產生交易訂單
+6. 計算預測穩定性（標準差）
+7. 計算風險調整倉位（根據穩定性）
+8. 檢查交易條件（偏離度 + 持倉狀態）
+9. 產生交易訂單
 ```
 
 ---
@@ -414,8 +418,9 @@
 - Domain Bug 修復
 
 ✅ **策略設計**：
-- 複合策略邏輯實現
-- 動量 + 均值回歸 + 風險調整
+- 純均值回歸策略邏輯實現
+- 基於價格偏離預測價格的程度進行交易
+- 風險調整機制（根據預測穩定性動態調整倉位）
 
 ✅ **錯誤處理**：
 - 模型載入失敗處理
@@ -505,11 +510,11 @@ predictions = loader.predict(feature_data)  # 返回 numpy array
 - `OrangePredictionStrategy`：基於 Orange 模型預測的交易策略
 
 **主要方法**：
-- `__init__(stock_ticker, hedge_ticker, model_path)`：初始化策略
+- `__init__(stock_ticker, hedge_ticker, model_path, use_multi_model, model_price_ranges)`：初始化策略（支援單模型或多模型模式）
 - `generate_orders(state, date, row, price_dict, ...)`：產生交易訂單
-- `_predict_price(row)`：使用 Orange 模型預測價格
-- `_check_momentum_signal(state, current_prediction)`：檢查動量信號
+- `_predict_price(row)`：使用 Orange 模型預測價格（支援多模型選擇）
 - `_calculate_price_deviation(current_price, predicted_price)`：計算價格偏離度
+- `_calculate_position_size(state)`：根據預測穩定性計算倉位大小
 
 **使用方式**：
 ```python
@@ -531,7 +536,9 @@ else:
 
 **重要特性**：
 - ✅ 條件導入：如果 Orange 庫不可用，策略不會崩潰
-- ✅ 複合策略邏輯：動量 + 均值回歸 + 風險調整
+- ✅ 純均值回歸策略邏輯：基於價格偏離預測價格的程度進行交易
+- ✅ 多模型支援：可根據價格區間選擇不同的模型（需手動配置）
+- ✅ 風險調整機制：根據預測穩定性動態調整倉位（20%-100%）
 - ✅ 錯誤處理：預測失敗時返回空訂單列表，不影響其他策略
 
 **在系統中的角色**：
@@ -663,11 +670,11 @@ python orange_data_export/diagnose_strategy.py
 - 策略參數設定
 - 預測成功/失敗統計
 - 價格偏離度統計
-- 動量信號統計
-- 動量強度統計
 - 交易條件分析（滿足買進/賣出條件的天數）
 - 不交易原因統計
 - 前20天詳細診斷信息
+
+**注意**：此診斷腳本可能仍包含動量相關的統計（如果腳本未更新），但當前策略已不再使用動量信號。
 
 **適用場景**：
 - ✅ 策略無法產生交易時，找出原因
@@ -825,13 +832,18 @@ orange_data_export/inspect_model_simple.py
 
 ## 附錄：相關文件
 
-- **Orange 數據分析操作指南**：`docs/ORANGE_ANALYSIS_GUIDE.md`
-- **Orange 預測工作流程指引**：`docs/ORANGE_PREDICTION_GUIDE.md`
-- **Orange 智能預測交易策略邏輯說明**：`docs/ORANGE_STRATEGY_LOGIC.md`
+### Orange 相關文件
+
+- **Orange 模型整合報告**：`docs/ORANGE_INTEGRATION_REPORT.md`（本文件，包含完整的工作流程、策略設計和技術實現說明）
+- **策略說明文件**：`docs/STRATEGY_EXPLANATION.md`（包含新系統和舊系統的策略說明）
+
+### 核心程式文件
+
 - **模型載入器**：`backtesting/orange_model_loader.py`
 - **策略實現**：`backtesting/strategy_orange.py`
 - **診斷腳本**：`orange_data_export/diagnose_strategy.py`
 - **模型檢查腳本**：`orange_data_export/inspect_model.py`
+- **簡單模型檢查腳本**：`orange_data_export/inspect_model_simple.py`
 
 ---
 
