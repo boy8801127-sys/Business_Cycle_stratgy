@@ -186,6 +186,14 @@ results/
 # 景氣週期資料目錄（包含景氣指標與燈號等原始資料 CSV）
 business_cycle/
 
+# photo 目錄：只允許頂層目錄下的文件，排除異常的嵌套路徑
+photo/
+!photo/*.jpg
+!photo/*.png
+!photo/*.jpeg
+# 排除所有嵌套子目錄（防止異常的路徑被追蹤）
+photo/*/
+
 # 策略說明文件（最珍貴的文件，不上傳到 GitHub）
 docs/STRATEGY_EXPLANATION.md
 # Orange 檔案不上傳
