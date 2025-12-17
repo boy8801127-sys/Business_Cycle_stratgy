@@ -15,9 +15,9 @@
 - ✅ 想要自動化交易策略的開發者
 
 ## 他的績效如何?
-<img src="results/符合實際的TEJ策略/ilovepdf_pages-to-jpg/TEJ成果還原_page-0001.jpg" alt="TEJ 策略回測績效報告 - 第一頁" width="800">
+<img src="photo/TEJ成果還原_page-0001.jpg" alt="TEJ 策略回測績效報告 - 第一頁" width="800">
 
-<img src="results/符合實際的TEJ策略/ilovepdf_pages-to-jpg/TEJ成果還原_page-0002.jpg" alt="TEJ 策略回測績效報告 - 第二頁" width="800">
+<img src="photo/TEJ成果還原_page-0002.jpg" alt="TEJ 策略回測績效報告 - 第二頁" width="800">
 
 ---
 
