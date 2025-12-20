@@ -25,7 +25,7 @@
 
 ### 我想先了解這套系統在做甚麼?
 
-請先下載docs資料夾內的PROJECT_CONTEXT.md，另外詳細的使用說明皆放在docs資料夾內。
+請參考 [景氣週期投資策略系統 - 專案說明文件](docs/PROJECT_CONTEXT.md)
 
 ### 第一次使用？
 
