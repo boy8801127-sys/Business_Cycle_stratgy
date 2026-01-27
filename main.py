@@ -28,6 +28,7 @@ from data_collection.cycle_data_collector import CycleDataCollector
 from data_collection.indicator_data_collector import IndicatorDataCollector
 from data_collection.stock_data_collector import StockDataCollector
 from data_collection.otc_data_collector import OTCDataCollector
+from data_collection.margin_data_collector import MarginDataCollector
 
 # 策略名稱縮寫對照表（用於 Excel 工作表命名）
 STRATEGY_NAME_MAP = {
@@ -379,6 +380,7 @@ def print_menu():
     print("-" * 60)
     print("11. 輸出 Orange 分析數據（股價 + 指標數據）")
     print("12. 執行回測（新系統，基於 Orange 資料）")
+    print("13. 收集融資維持率數據（2015-2025年）")
     print("0. 離開")
     print("="*60)
 
@@ -683,7 +685,7 @@ def run_backtest_new():
     
     # 回測時間設定（固定為 2020-01-01 至 2025-11-30）
     start_date = '2020-01-01'
-    end_date = '2025-11-30'
+    end_date = '2025-12-31'
     print(f"\n回測時間範圍：{start_date} 至 {end_date}")
     
     # 初始資金
@@ -1020,25 +1022,83 @@ def run_backtest_new():
 def export_orange_data():
     """選項 11：輸出 Orange 分析數據"""
     try:
+        print("\n[選項 11] 輸出 Orange 分析數據")
+        print("-" * 60)
+        print("1. 輸出日線（原功能）")
+        print("2. 彙整成月線輸出（月 OHLCV + 指標，提前 2 個月對齊）")
+        mode_choice = input("請選擇（1-2，預設 1）: ").strip() or '1'
+
+        # 日期範圍（可自訂）
+        start_date_input = input("起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
+        start_date = start_date_input if start_date_input else '2015-01-01'
+
+        end_date_input = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
+        end_date = end_date_input if end_date_input else datetime.now().strftime('%Y-%m-%d')
+
+        # 驗證日期格式
+        try:
+            datetime.strptime(start_date, '%Y-%m-%d')
+        except ValueError:
+            print("[Warning] 起始日期格式錯誤，使用預設 2015-01-01")
+            start_date = '2015-01-01'
+
+        try:
+            datetime.strptime(end_date, '%Y-%m-%d')
+        except ValueError:
+            print("[Warning] 結束日期格式錯誤，使用預設（今天）")
+            end_date = datetime.now().strftime('%Y-%m-%d')
+
         # 導入輸出腳本
-        import sys
         import importlib.util
         from pathlib import Path
-        
+
         scripts_path = Path(__file__).parent / 'scripts' / 'export_orange_data.py'
-        if scripts_path.exists():
-            spec = importlib.util.spec_from_file_location("export_orange_data", scripts_path)
-            if spec and spec.loader:
-                export_module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(export_module)
-                if hasattr(export_module, 'export_orange_data'):
-                    export_module.export_orange_data()
-                else:
-                    print("[Error] 輸出腳本缺少 export_orange_data 函數")
-            else:
-                print("[Error] 無法載入輸出腳本")
-        else:
+        if not scripts_path.exists():
             print("[Error] 找不到輸出腳本 scripts/export_orange_data.py")
+            return
+
+        spec = importlib.util.spec_from_file_location("export_orange_data", scripts_path)
+        if not spec or not spec.loader:
+            print("[Error] 無法載入輸出腳本")
+            return
+
+        export_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(export_module)
+
+        # 預設 ticker（與既有日線輸出一致）
+        tickers = ['006208', '2330']
+
+        if mode_choice == '2':
+            if hasattr(export_module, 'export_orange_data_monthly'):
+                output = export_module.export_orange_data_monthly(
+                    start_date=start_date,
+                    end_date=end_date,
+                    tickers=tickers
+                )
+                if output:
+                    print(f"[Info] 月線 CSV 已輸出：{output}")
+            else:
+                print("[Error] 輸出腳本缺少 export_orange_data_monthly 函數")
+        else:
+            # 日線（向後相容：優先呼叫 export_orange_data_daily，否則呼叫 export_orange_data）
+            if hasattr(export_module, 'export_orange_data_daily'):
+                output = export_module.export_orange_data_daily(
+                    start_date=start_date,
+                    end_date=end_date,
+                    tickers=tickers
+                )
+                if output:
+                    print(f"[Info] 日線 CSV 已輸出：{output}")
+            elif hasattr(export_module, 'export_orange_data'):
+                output = export_module.export_orange_data(
+                    start_date=start_date,
+                    end_date=end_date,
+                    tickers=tickers
+                )
+                if output:
+                    print(f"[Info] 日線 CSV 已輸出：{output}")
+            else:
+                print("[Error] 輸出腳本缺少 export_orange_data_daily/export_orange_data 函數")
     except Exception as e:
         print(f"[Error] 輸出失敗: {e}")
         import traceback
@@ -1923,6 +1983,55 @@ def batch_update():
         traceback.print_exc()
 
 
+def collect_margin_data():
+    """選項 13：收集融資維持率數據"""
+    print("\n[選項 13] 收集融資維持率數據")
+    print("-" * 60)
+    
+    db_manager = DatabaseManager()
+    collector = MarginDataCollector(db_manager, polite_sleep=5)
+    
+    # 詢問日期範圍
+    start_date_input = input("請輸入起始日期（YYYY-MM-DD，預設 2015-01-01）: ").strip()
+    start_date = start_date_input if start_date_input else '2015-01-01'
+    
+    end_date_input = input("請輸入結束日期（YYYY-MM-DD，預設今天）: ").strip()
+    end_date = end_date_input if end_date_input else None
+    
+    # 詢問是否計算融資維持率
+    calculate_ratio = input("數據下載完成後是否計算融資維持率？(y/n，預設 y): ").strip().lower()
+    calculate_ratio = calculate_ratio if calculate_ratio in ('y', 'n') else 'y'
+    
+    try:
+        print(f"\n[Info] 開始收集融資維持率數據...")
+        print(f"[Info] 日期範圍：{start_date} 至 {end_date if end_date else '今天'}")
+        
+        # 批次下載數據
+        result = collector.batch_fetch_margin_data(
+            start_date=start_date,
+            end_date=end_date,
+            retry_times=3,
+            retry_delay=5
+        )
+        
+        print(f"\n[Info] 數據收集完成")
+        print(f"成功：{result['success']} 筆")
+        print(f"失敗：{result['failed']} 筆")
+        print(f"跳過：{result['skipped']} 筆")
+        print(f"總計：{result['total']} 筆")
+        
+        # 如果選擇計算融資維持率
+        if calculate_ratio == 'y':
+            print(f"\n[Info] 開始計算融資維持率...")
+            collector.calculate_margin_maintenance_ratio()
+            print(f"[Info] 融資維持率計算完成")
+        
+    except Exception as e:
+        print(f"[Error] 收集融資維持率數據失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def validate_data():
     """選項 6：驗證股價資料"""
     print("\n[選項 6] 驗證股價資料")
@@ -2013,7 +2122,7 @@ def main():
     while True:
         try:
             print_menu()
-            choice = input("\n請選擇功能（0-11）: ").strip()
+            choice = input("\n請選擇功能（0-13）: ").strip()
             
             # 過濾掉可能的 PowerShell 自動執行腳本或路徑
             # 如果輸入看起來像腳本路徑或命令，視為無效
@@ -2064,8 +2173,10 @@ def main():
                 export_orange_data()
             elif choice == '12':
                 run_backtest_new()
+            elif choice == '13':
+                collect_margin_data()
             else:
-                print("[Error] 無效的選項，請輸入 0-12 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-13 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):

@@ -45,7 +45,7 @@ def run_tej_backtest():
     # 固定參數
     initial_capital = 1000000  # 100萬
     start_date = '2020-01-01'
-    end_date = '2025-11-30'
+    end_date = '2025-12-31'
     stock_ticker_input = '006208'  # 富邦台50（輸入格式）
     hedge_ticker = '00865B'  # 短期美債
     

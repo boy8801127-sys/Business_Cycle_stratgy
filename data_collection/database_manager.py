@@ -34,6 +34,7 @@ class DatabaseManager:
         self.init_price_indices_table()
         self.init_return_indices_table()
         self.init_otc_stock_price_table()
+        self.init_market_margin_table()
         # 確保上市/上櫃股票資料表含必要欄位
         self.ensure_table_column('tw_stock_price_data', 'odd_lot_filled', 'INTEGER DEFAULT 0')
         self.ensure_table_column('tw_otc_stock_price_data', 'odd_lot_filled', 'INTEGER DEFAULT 0')
@@ -387,6 +388,74 @@ class DatabaseManager:
             raise
         finally:
             conn.close()
+    
+    def init_market_margin_table(self):
+        """
+        初始化大盤融資維持率資料表（market_margin_data）
+        儲存從證交所 MI_MARGN API 取得的每日融資融券原始數據
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS market_margin_data (
+                    date TEXT PRIMARY KEY,
+                    -- 融資(交易單位) 相關欄位
+                    margin_buy_units TEXT,
+                    margin_sell_units TEXT,
+                    margin_cash_repay_units TEXT,
+                    margin_prev_balance_units TEXT,
+                    margin_today_balance_units TEXT,
+                    -- 融券(交易單位) 相關欄位
+                    short_buy_units TEXT,
+                    short_sell_units TEXT,
+                    short_cash_repay_units TEXT,
+                    short_prev_balance_units TEXT,
+                    short_today_balance_units TEXT,
+                    -- 融資金額(仟元) 相關欄位
+                    margin_buy_amount TEXT,
+                    margin_sell_amount TEXT,
+                    margin_cash_repay_amount TEXT,
+                    margin_prev_balance_amount TEXT,
+                    margin_today_balance_amount TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.commit()
+            print("[Info] 大盤融資維持率資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化大盤融資維持率資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def get_market_margin_data(self, start_date=None, end_date=None):
+        """
+        取得大盤融資維持率資料
+        
+        參數:
+        - start_date: 起始日期（YYYYMMDD）
+        - end_date: 結束日期（YYYYMMDD）
+        
+        回傳:
+        - DataFrame
+        """
+        query = "SELECT * FROM market_margin_data WHERE 1=1"
+        params = []
+        
+        if start_date:
+            query += " AND date >= ?"
+            params.append(start_date)
+        
+        if end_date:
+            query += " AND date <= ?"
+            params.append(end_date)
+        
+        query += " ORDER BY date"
+        
+        return self.execute_query_dataframe(query, params if params else None)
     
     def get_price_indices(self, ticker=None, start_date=None, end_date=None):
         """

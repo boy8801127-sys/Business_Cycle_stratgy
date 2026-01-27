@@ -18,6 +18,7 @@
 8. [lagging_indicators_data](#8-lagging_indicators_data) - 落後指標構成項目
 9. [composite_indicators_data](#9-composite_indicators_data) - 景氣指標與燈號（綜合指標）
 10. [business_cycle_signal_components_data](#10-business_cycle_signal_components_data) - 景氣對策信號構成項目
+11. [market_margin_data](#11-market_margin_data) - 大盤融資維持率資料
 
 ---
 
@@ -483,6 +484,85 @@ ORDER BY s.date DESC;
 
 ---
 
+## 11. market_margin_data
+
+**說明**：儲存大盤融資維持率資料，資料來源為證交所 MI_MARGN API。
+
+### 欄位說明
+
+| 欄位名稱 | 資料型別 | 說明 | 範例 |
+|---------|---------|------|------|
+| date | TEXT | 日期（YYYYMMDD 格式，主鍵） | 20260123 |
+| margin_buy_units | TEXT | 融資買進（交易單位） | 523,402 |
+| margin_sell_units | TEXT | 融資賣出（交易單位） | 498,874 |
+| margin_cash_repay_units | TEXT | 融資現金(券)償還（交易單位） | 12,625 |
+| margin_prev_balance_units | TEXT | 融資前日餘額（交易單位） | 8,193,989 |
+| margin_today_balance_units | TEXT | 融資今日餘額（交易單位） | 8,205,892 |
+| short_buy_units | TEXT | 融券買進（交易單位） | 29,235 |
+| short_sell_units | TEXT | 融券賣出（交易單位） | 20,451 |
+| short_cash_repay_units | TEXT | 融券現金(券)償還（交易單位） | 4,958 |
+| short_prev_balance_units | TEXT | 融券前日餘額（交易單位） | 311,678 |
+| short_today_balance_units | TEXT | 融券今日餘額（交易單位） | 297,936 |
+| margin_buy_amount | TEXT | 融資買進（仟元） | 32,913,296 |
+| margin_sell_amount | TEXT | 融資賣出（仟元） | 27,977,075 |
+| margin_cash_repay_amount | TEXT | 融資現金(券)償還（仟元） | 593,667 |
+| margin_prev_balance_amount | TEXT | 融資前日餘額（仟元） | 371,734,424 |
+| margin_today_balance_amount | TEXT | 融資今日餘額（仟元） | 376,076,978 |
+| margin_shares_total | REAL | 所有融資股數總和（數值化，計算欄位） | 8193989.0 |
+| margin_balance | REAL | 大盤融資餘額（元，數值化，計算欄位） | 371734424000.0 |
+| margin_market_value | REAL | 所有融資股票市值（元，計算欄位） | 371734424000.0 |
+| margin_maintenance_ratio | REAL | 大盤融資維持率（計算欄位） | 1.0 |
+| created_at | TIMESTAMP | 資料建立時間 | 2026-01-23 10:00:00 |
+
+### 主鍵
+
+- `date` - 日期（YYYYMMDD 格式）
+
+### 計算欄位說明
+
+- **margin_maintenance_ratio（大盤融資維持率）**：
+  - 計算公式：`(所有融資股數 × 股票收盤價) / 大盤融資餘額`
+  - 由於 API 只提供市場整體數據，使用近似方法計算
+  - 近似方法：`融資維持率 ≈ 融資股票市值 / 融資餘額`
+
+### 注意事項
+
+- 日期格式為 8 位數字字串（YYYYMMDD）
+- 原始數據欄位（units, amount）以字串格式儲存（包含逗號）
+- 計算欄位（margin_shares_total, margin_balance, margin_market_value, margin_maintenance_ratio）為數值型
+- 融資金額單位為「仟元」，計算時需轉換為「元」（乘以 1000）
+- 建議使用「前日餘額」欄位作為準確數據（根據證交所說明）
+
+### 查詢範例
+
+```sql
+-- 查詢最近 10 天的融資維持率
+SELECT 
+    date,
+    margin_prev_balance_amount,
+    margin_shares_total,
+    margin_maintenance_ratio
+FROM market_margin_data
+WHERE margin_maintenance_ratio IS NOT NULL
+ORDER BY date DESC
+LIMIT 10;
+
+-- 查詢股價與融資維持率
+SELECT 
+    s.date,
+    s.ticker,
+    s.close,
+    m.margin_maintenance_ratio,
+    m.margin_prev_balance_amount
+FROM tw_stock_price_data s
+LEFT JOIN market_margin_data m ON s.date = m.date
+WHERE s.ticker = '006208'
+ORDER BY s.date DESC
+LIMIT 10;
+```
+
+---
+
 ## 資料維護
 
 ### 資料更新
@@ -499,6 +579,8 @@ ORDER BY s.date DESC;
    - 支援一鍵更新所有景氣指標資料
 2. **上市股票**：使用 `main.py` 選項 2 從證交所 API 收集
 3. **上櫃股票**：使用 `main.py` 選項 2 從櫃買中心 API 收集
+4. **融資維持率**：使用 `main.py` 選項 13 從證交所 MI_MARGN API 收集
+   - `market_margin_data` - 大盤融資維持率資料
 
 ### 資料驗證
 
@@ -536,6 +618,7 @@ CREATE INDEX idx_stock_ticker ON tw_stock_price_data(ticker);
 CREATE INDEX idx_otc_date ON tw_otc_stock_price_data(date);
 CREATE INDEX idx_otc_ticker ON tw_otc_stock_price_data(ticker);
 CREATE INDEX idx_cycle_date ON business_cycle_data(date);
+CREATE INDEX idx_margin_date ON market_margin_data(date);
 ```
 
 ---
@@ -546,6 +629,7 @@ CREATE INDEX idx_cycle_date ON business_cycle_data(date);
 
 - **股票資料**：從 2015-01-01 至今（或收集開始日期）
 - **景氣燈號**：從 CSV 檔案提供的日期範圍（通常為 1982 年至今）
+- **融資維持率**：從 2015-01-01 至今（或收集開始日期）
 
 ### 資料量估算
 
