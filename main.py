@@ -397,7 +397,7 @@ def print_menu():
     print("-" * 60)
     print("11. 輸出 Orange 分析數據（股價 + 指標數據）")
     print("12. 執行回測（新系統，基於 Orange 資料）")
-    print("13. 收集融資維持率數據（2015-2025年）")
+    print("13. 收集融資融券數據（2015-2025年）")
     print("14. 下載並重新計算VIX月K線（自動偵測當月缺失日期）")
     print("0. 離開")
     print("="*60)
@@ -2002,8 +2002,8 @@ def batch_update():
 
 
 def collect_margin_data():
-    """選項 13：收集融資維持率數據"""
-    print("\n[選項 13] 收集融資維持率數據")
+    """選項 13：收集融資融券數據"""
+    print("\n[選項 13] 收集融資融券數據")
     print("-" * 60)
     
     db_manager = DatabaseManager()
@@ -2016,12 +2016,8 @@ def collect_margin_data():
     end_date_input = input("請輸入結束日期（YYYY-MM-DD，預設今天）: ").strip()
     end_date = end_date_input if end_date_input else None
     
-    # 詢問是否計算融資維持率
-    calculate_ratio = input("數據下載完成後是否計算融資維持率？(y/n，預設 y): ").strip().lower()
-    calculate_ratio = calculate_ratio if calculate_ratio in ('y', 'n') else 'y'
-    
     try:
-        print(f"\n[Info] 開始收集融資維持率數據...")
+        print(f"\n[Info] 開始收集融資融券數據...")
         print(f"[Info] 日期範圍：{start_date} 至 {end_date if end_date else '今天'}")
         
         # 批次下載數據
@@ -2038,14 +2034,13 @@ def collect_margin_data():
         print(f"跳過：{result['skipped']} 筆")
         print(f"總計：{result['total']} 筆")
         
-        # 如果選擇計算融資維持率
-        if calculate_ratio == 'y':
-            print(f"\n[Info] 開始計算融資維持率...")
-            collector.calculate_margin_maintenance_ratio()
-            print(f"[Info] 融資維持率計算完成")
+        # 自動計算衍生指標（無論是否有新增資料，都檢查並計算現有資料的衍生指標）
+        print(f"\n[Info] 開始計算衍生指標（券資比、變化率、買賣比等）...")
+        collector.calculate_derived_indicators()
+        print(f"[Info] 衍生指標計算完成")
         
     except Exception as e:
-        print(f"[Error] 收集融資維持率數據失敗: {e}")
+        print(f"[Error] 收集融資融券數據失敗: {e}")
         import traceback
         traceback.print_exc()
 

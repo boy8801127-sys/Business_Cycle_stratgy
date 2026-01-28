@@ -486,9 +486,11 @@ ORDER BY s.date DESC;
 
 ## 11. market_margin_data
 
-**說明**：儲存大盤融資維持率資料，資料來源為證交所 MI_MARGN API。
+**說明**：儲存大盤融資融券資料，資料來源為證交所 MI_MARGN API。
 
 ### 欄位說明
+
+#### 原始資料欄位
 
 | 欄位名稱 | 資料型別 | 說明 | 範例 |
 |---------|---------|------|------|
@@ -508,51 +510,67 @@ ORDER BY s.date DESC;
 | margin_cash_repay_amount | TEXT | 融資現金(券)償還（仟元） | 593,667 |
 | margin_prev_balance_amount | TEXT | 融資前日餘額（仟元） | 371,734,424 |
 | margin_today_balance_amount | TEXT | 融資今日餘額（仟元） | 376,076,978 |
-| margin_shares_total | REAL | 所有融資股數總和（數值化，計算欄位） | 8193989.0 |
-| margin_balance | REAL | 大盤融資餘額（元，數值化，計算欄位） | 371734424000.0 |
-| margin_market_value | REAL | 所有融資股票市值（元，計算欄位） | 371734424000.0 |
-| margin_maintenance_ratio | REAL | 大盤融資維持率（計算欄位） | 1.0 |
 | created_at | TIMESTAMP | 資料建立時間 | 2026-01-23 10:00:00 |
+
+#### 衍生指標欄位
+
+| 欄位名稱 | 資料型別 | 說明 | 計算公式 |
+|---------|---------|------|---------|
+| short_margin_ratio | REAL | 券資比 | short_today_balance_units / margin_today_balance_units |
+| margin_balance_change_rate | REAL | 融資餘額變化率 | (margin_today_balance_amount - margin_prev_balance_amount) / margin_prev_balance_amount |
+| margin_balance_net_change | REAL | 融資餘額淨增減（仟元） | margin_today_balance_amount - margin_prev_balance_amount |
+| margin_buy_sell_ratio | REAL | 融資買賣比 | margin_buy_amount / margin_sell_amount |
+| margin_buy_sell_net | REAL | 融資買賣淨額（仟元） | margin_buy_amount - margin_sell_amount |
+| short_balance_change_rate | REAL | 融券餘額變化率 | (short_today_balance_units - short_prev_balance_units) / short_prev_balance_units |
+| short_balance_net_change | REAL | 融券餘額淨增減（交易單位） | short_today_balance_units - short_prev_balance_units |
+| short_buy_sell_ratio | REAL | 融券買賣比 | short_sell_units / short_buy_units |
+| short_buy_sell_net | REAL | 融券買賣淨額（交易單位） | short_sell_units - short_buy_units |
 
 ### 主鍵
 
 - `date` - 日期（YYYYMMDD 格式）
 
-### 計算欄位說明
+### 衍生指標說明
 
-- **margin_maintenance_ratio（大盤融資維持率）**：
-  - 計算公式：`(所有融資股數 × 股票收盤價) / 大盤融資餘額`
-  - 由於 API 只提供市場整體數據，使用近似方法計算
-  - 近似方法：`融資維持率 ≈ 融資股票市值 / 融資餘額`
+- **short_margin_ratio（券資比）**：反映市場多空情緒，數值越高表示看空情緒越強
+- **margin_balance_change_rate（融資餘額變化率）**：觀察融資餘額的成長或衰退趨勢
+- **margin_buy_sell_ratio（融資買賣比）**：>1 表示買進意願強，<1 表示賣出意願強
+- **short_buy_sell_ratio（融券買賣比）**：>1 表示看空意願強，<1 表示回補意願強
 
 ### 注意事項
 
 - 日期格式為 8 位數字字串（YYYYMMDD）
 - 原始數據欄位（units, amount）以字串格式儲存（包含逗號）
-- 計算欄位（margin_shares_total, margin_balance, margin_market_value, margin_maintenance_ratio）為數值型
+- 衍生指標欄位為數值型（REAL）
 - 融資金額單位為「仟元」，計算時需轉換為「元」（乘以 1000）
 - 建議使用「前日餘額」欄位作為準確數據（根據證交所說明）
+- 衍生指標會在資料收集後自動計算
 
 ### 查詢範例
 
 ```sql
--- 查詢最近 10 天的融資維持率
+-- 查詢最近 10 天的券資比和融資變化率
 SELECT 
     date,
     margin_prev_balance_amount,
-    margin_shares_total,
-    margin_maintenance_ratio
+    short_today_balance_units,
+    margin_today_balance_units,
+    short_margin_ratio,
+    margin_balance_change_rate,
+    margin_buy_sell_ratio
 FROM market_margin_data
-WHERE margin_maintenance_ratio IS NOT NULL
+WHERE short_margin_ratio IS NOT NULL
 ORDER BY date DESC
 LIMIT 10;
 
--- 查詢股價與融資維持率
+-- 查詢股價與融資融券衍生指標
 SELECT 
     s.date,
     s.ticker,
     s.close,
-    m.margin_maintenance_ratio,
+    m.short_margin_ratio,
+    m.margin_balance_change_rate,
+    m.margin_buy_sell_ratio,
     m.margin_prev_balance_amount
 FROM tw_stock_price_data s
 LEFT JOIN market_margin_data m ON s.date = m.date

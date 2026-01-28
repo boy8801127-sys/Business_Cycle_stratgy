@@ -19,7 +19,7 @@ from data_collection.database_manager import DatabaseManager
 
 def load_margin_data(db_manager: DatabaseManager, start_date: Optional[str] = None, end_date: Optional[str] = None):
     """
-    讀取融資維持率數據
+    讀取融資融券數據
     
     參數:
     - db_manager: DatabaseManager 實例
@@ -27,7 +27,7 @@ def load_margin_data(db_manager: DatabaseManager, start_date: Optional[str] = No
     - end_date: 結束日期（YYYYMMDD）
     
     返回:
-    - DataFrame: 包含融資維持率數據
+    - DataFrame: 包含融資融券數據和衍生指標
     """
     margin_df = db_manager.get_market_margin_data(start_date=start_date, end_date=end_date)
     
@@ -293,37 +293,47 @@ def export_orange_data_daily(
         for col in indicator_cols:
             result_row[col] = indicator_row.get(col, None)
         
-        # 添加融資維持率相關欄位
-        if not margin_row.empty and 'margin_maintenance_ratio' in margin_row:
-            result_row['margin_maintenance_ratio'] = margin_row.get('margin_maintenance_ratio', None)
-        else:
-            result_row['margin_maintenance_ratio'] = None
+        # 添加融資融券衍生指標欄位
+        margin_derived_cols = [
+            'short_margin_ratio',
+            'margin_balance_change_rate',
+            'margin_balance_net_change',
+            'margin_buy_sell_ratio',
+            'margin_buy_sell_net',
+            'short_balance_change_rate',
+            'short_balance_net_change',
+            'short_buy_sell_ratio',
+            'short_buy_sell_net'
+        ]
+        
+        for col in margin_derived_cols:
+            if not margin_row.empty and col in margin_row:
+                result_row[col] = margin_row.get(col, None)
+            else:
+                result_row[col] = None
 
         result_rows.append(result_row)
 
     result_df = pd.DataFrame(result_rows)
 
-    # 添加融資維持率相關特徵
-    print("  計算融資維持率特徵...")
-    result_df = pd.DataFrame(result_rows)
+    # 添加融資融券衍生指標相關特徵
+    print("  計算融資融券衍生指標特徵...")
     result_df['date_dt'] = pd.to_datetime(result_df['date'], errors='coerce')
     result_df = result_df.sort_values(['ticker', 'date_dt']).reset_index(drop=True)
     
-    # 計算融資維持率的滯後值和變化率
-    if 'margin_maintenance_ratio' in result_df.columns:
-        result_df['margin_maintenance_ratio_lag1'] = result_df.groupby('ticker')['margin_maintenance_ratio'].shift(1)
-        result_df['margin_maintenance_ratio_lag2'] = result_df.groupby('ticker')['margin_maintenance_ratio'].shift(2)
-        result_df['margin_maintenance_ratio_change'] = result_df.groupby('ticker')['margin_maintenance_ratio'].diff()
-    else:
-        result_df['margin_maintenance_ratio_lag1'] = None
-        result_df['margin_maintenance_ratio_lag2'] = None
-        result_df['margin_maintenance_ratio_change'] = None
+    # 計算衍生指標的滯後值和變化率
+    for col in margin_derived_cols:
+        if col in result_df.columns:
+            result_df[f'{col}_lag1'] = result_df.groupby('ticker')[col].shift(1)
+            result_df[f'{col}_lag2'] = result_df.groupby('ticker')[col].shift(2)
+            result_df[f'{col}_change'] = result_df.groupby('ticker')[col].diff()
     
     result_df = result_df.drop(columns=['date_dt'])
 
-    # 確保欄位順序：date, ticker, close, 然後是指標欄位，最後是融資維持率
-    margin_cols = ['margin_maintenance_ratio', 'margin_maintenance_ratio_lag1', 
-                    'margin_maintenance_ratio_lag2', 'margin_maintenance_ratio_change']
+    # 確保欄位順序：date, ticker, close, 然後是指標欄位，最後是融資融券衍生指標
+    margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
+                  [f'{col}_lag2' for col in margin_derived_cols] + \
+                  [f'{col}_change' for col in margin_derived_cols]
     margin_cols = [col for col in margin_cols if col in result_df.columns]
     column_order = ['date', 'ticker', 'close'] + indicator_cols + margin_cols
     result_df = result_df[column_order]
@@ -354,9 +364,21 @@ def export_orange_data_daily(
     result_df = result_df.drop(columns=['date_dt'])
 
     time_features = ['year', 'month', 'quarter', 'day_of_week', 'is_month_start', 'is_month_end']
-    margin_cols = [col for col in ['margin_maintenance_ratio', 'margin_maintenance_ratio_lag1', 
-                                    'margin_maintenance_ratio_lag2', 'margin_maintenance_ratio_change'] 
-                   if col in result_df.columns]
+    margin_derived_cols = [
+        'short_margin_ratio',
+        'margin_balance_change_rate',
+        'margin_balance_net_change',
+        'margin_buy_sell_ratio',
+        'margin_buy_sell_net',
+        'short_balance_change_rate',
+        'short_balance_net_change',
+        'short_buy_sell_ratio',
+        'short_buy_sell_net'
+    ]
+    margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
+                  [f'{col}_lag2' for col in margin_derived_cols] + \
+                  [f'{col}_change' for col in margin_derived_cols]
+    margin_cols = [col for col in margin_cols if col in result_df.columns]
     column_order = ['date', 'ticker', 'close', 'daily_return', 'cumulative_return'] + time_features + indicator_cols + margin_cols
     result_df = result_df[column_order]
 
@@ -487,27 +509,53 @@ def export_orange_data_monthly(
         for col in indicator_cols:
             out_row[col] = indicator_row.get(col, None)
         
-        # 添加融資維持率相關欄位
-        if not margin_row.empty and 'margin_maintenance_ratio' in margin_row:
-            out_row['margin_maintenance_ratio'] = margin_row.get('margin_maintenance_ratio', None)
-        else:
-            out_row['margin_maintenance_ratio'] = None
+        # 添加融資融券衍生指標欄位
+        margin_derived_cols = [
+            'short_margin_ratio',
+            'margin_balance_change_rate',
+            'margin_balance_net_change',
+            'margin_buy_sell_ratio',
+            'margin_buy_sell_net',
+            'short_balance_change_rate',
+            'short_balance_net_change',
+            'short_buy_sell_ratio',
+            'short_buy_sell_net'
+        ]
+        
+        for col in margin_derived_cols:
+            if not margin_row.empty and col in margin_row:
+                out_row[col] = margin_row.get(col, None)
+            else:
+                out_row[col] = None
         
         out_rows.append(out_row)
 
     out_df = pd.DataFrame(out_rows)
     
-    # 添加融資維持率相關特徵（滯後值和變化率）
-    if 'margin_maintenance_ratio' in out_df.columns:
-        out_df = out_df.sort_values(['ticker', 'date']).reset_index(drop=True)
-        out_df['margin_maintenance_ratio_lag1'] = out_df.groupby('ticker')['margin_maintenance_ratio'].shift(1)
-        out_df['margin_maintenance_ratio_lag2'] = out_df.groupby('ticker')['margin_maintenance_ratio'].shift(2)
-        out_df['margin_maintenance_ratio_change'] = out_df.groupby('ticker')['margin_maintenance_ratio'].diff()
+    # 添加融資融券衍生指標相關特徵（滯後值和變化率）
+    margin_derived_cols = [
+        'short_margin_ratio',
+        'margin_balance_change_rate',
+        'margin_balance_net_change',
+        'margin_buy_sell_ratio',
+        'margin_buy_sell_net',
+        'short_balance_change_rate',
+        'short_balance_net_change',
+        'short_buy_sell_ratio',
+        'short_buy_sell_net'
+    ]
+    out_df = out_df.sort_values(['ticker', 'date']).reset_index(drop=True)
+    for col in margin_derived_cols:
+        if col in out_df.columns:
+            out_df[f'{col}_lag1'] = out_df.groupby('ticker')[col].shift(1)
+            out_df[f'{col}_lag2'] = out_df.groupby('ticker')[col].shift(2)
+            out_df[f'{col}_change'] = out_df.groupby('ticker')[col].diff()
     
     base_cols = ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'turnover']
-    margin_cols = [col for col in ['margin_maintenance_ratio', 'margin_maintenance_ratio_lag1', 
-                                    'margin_maintenance_ratio_lag2', 'margin_maintenance_ratio_change'] 
-                   if col in out_df.columns]
+    margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
+                  [f'{col}_lag2' for col in margin_derived_cols] + \
+                  [f'{col}_change' for col in margin_derived_cols]
+    margin_cols = [col for col in margin_cols if col in out_df.columns]
     out_df = out_df[base_cols + indicator_cols + margin_cols]
 
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)

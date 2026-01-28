@@ -330,9 +330,9 @@ class MarginDataCollector:
             'failed_dates': failed_dates
         }
     
-    def add_calculation_columns(self):
+    def add_derived_columns(self):
         """
-        在資料表中新增計算欄位（如果不存在）
+        在資料表中新增衍生指標欄位（如果不存在）
         """
         conn = self.db_manager.get_connection()
         cursor = conn.cursor()
@@ -340,10 +340,18 @@ class MarginDataCollector:
         try:
             # 檢查欄位是否存在，如果不存在則添加
             columns_to_add = [
-                ('margin_shares_total', 'REAL'),
-                ('margin_balance', 'REAL'),
-                ('margin_market_value', 'REAL'),
-                ('margin_maintenance_ratio', 'REAL')
+                # 券資比
+                ('short_margin_ratio', 'REAL'),
+                # 融資相關衍生指標
+                ('margin_balance_change_rate', 'REAL'),
+                ('margin_balance_net_change', 'REAL'),
+                ('margin_buy_sell_ratio', 'REAL'),
+                ('margin_buy_sell_net', 'REAL'),
+                # 融券相關衍生指標
+                ('short_balance_change_rate', 'REAL'),
+                ('short_balance_net_change', 'REAL'),
+                ('short_buy_sell_ratio', 'REAL'),
+                ('short_buy_sell_net', 'REAL')
             ]
             
             cursor.execute("PRAGMA table_info(market_margin_data)")
@@ -357,34 +365,20 @@ class MarginDataCollector:
             conn.commit()
         except Exception as e:
             conn.rollback()
-            print(f"[Error] 添加計算欄位失敗: {e}")
+            print(f"[Error] 添加衍生指標欄位失敗: {e}")
             raise
         finally:
             conn.close()
     
-    def calculate_margin_maintenance_ratio(self, date_str=None):
+    def calculate_derived_indicators(self, date_str=None):
         """
-        計算大盤融資維持率
-        
-        公式：大盤融資維持率 = (所有融資股數 × 股票收盤價) / 大盤融資餘額
-        
-        注意：由於 API 只提供市場整體數據，我們使用以下近似方法：
-        - 所有融資股票市值 ≈ 融資金額(仟元) × 1000（轉換為元）
-        - 大盤融資餘額 = 融資金額(仟元) × 1000（轉換為元）
-        - 融資維持率 = 融資股票市值 / 融資餘額
-        
-        實際上，如果我們有融資金額，可以近似認為：
-        融資維持率 ≈ 1.0（因為融資金額本身就是基於融資股票市值計算的）
-        
-        但更準確的方法是：
-        - 使用融資股數和平均股價來估算市值
-        - 或者需要從其他 API 獲取個股融資數據
+        計算所有衍生指標
         
         參數:
         - date_str: 要計算的日期（YYYYMMDD），如果為 None 則計算所有日期
         """
-        # 先確保計算欄位存在
-        self.add_calculation_columns()
+        # 先確保衍生指標欄位存在
+        self.add_derived_columns()
         
         conn = self.db_manager.get_connection()
         cursor = conn.cursor()
@@ -392,10 +386,28 @@ class MarginDataCollector:
         try:
             # 構建查詢條件
             if date_str:
-                query = "SELECT date, margin_prev_balance_units, margin_prev_balance_amount FROM market_margin_data WHERE date = ?"
+                query = """
+                    SELECT date,
+                        margin_prev_balance_amount, margin_today_balance_amount,
+                        margin_buy_amount, margin_sell_amount,
+                        short_prev_balance_units, short_today_balance_units,
+                        margin_today_balance_units,
+                        short_buy_units, short_sell_units
+                    FROM market_margin_data 
+                    WHERE date = ?
+                """
                 params = (date_str,)
             else:
-                query = "SELECT date, margin_prev_balance_units, margin_prev_balance_amount FROM market_margin_data ORDER BY date"
+                query = """
+                    SELECT date,
+                        margin_prev_balance_amount, margin_today_balance_amount,
+                        margin_buy_amount, margin_sell_amount,
+                        short_prev_balance_units, short_today_balance_units,
+                        margin_today_balance_units,
+                        short_buy_units, short_sell_units
+                    FROM market_margin_data 
+                    ORDER BY date
+                """
                 params = None
             
             cursor.execute(query, params if params else ())
@@ -405,49 +417,110 @@ class MarginDataCollector:
                 print("[Warning] 沒有找到需要計算的數據")
                 return
             
-            print(f"[Info] 開始計算融資維持率，共 {len(rows)} 筆數據...")
+            print(f"[Info] 開始計算衍生指標，共 {len(rows)} 筆數據...")
             
             updated_count = 0
             for row in rows:
-                date, margin_units_str, margin_amount_str = row
+                date = row[0]
+                margin_prev_balance_amount_str = row[1]
+                margin_today_balance_amount_str = row[2]
+                margin_buy_amount_str = row[3]
+                margin_sell_amount_str = row[4]
+                short_prev_balance_units_str = row[5]
+                short_today_balance_units_str = row[6]
+                margin_today_balance_units_str = row[7]
+                short_buy_units_str = row[8]
+                short_sell_units_str = row[9]
                 
                 # 數值化原始數據
-                margin_shares_total = self._parse_number(margin_units_str)  # 融資股數（交易單位）
-                margin_balance_thousands = self._parse_number(margin_amount_str)  # 融資餘額（仟元）
+                margin_prev_balance_amount = self._parse_number(margin_prev_balance_amount_str)
+                margin_today_balance_amount = self._parse_number(margin_today_balance_amount_str)
+                margin_buy_amount = self._parse_number(margin_buy_amount_str)
+                margin_sell_amount = self._parse_number(margin_sell_amount_str)
+                short_prev_balance_units = self._parse_number(short_prev_balance_units_str)
+                short_today_balance_units = self._parse_number(short_today_balance_units_str)
+                margin_today_balance_units = self._parse_number(margin_today_balance_units_str)
+                short_buy_units = self._parse_number(short_buy_units_str)
+                short_sell_units = self._parse_number(short_sell_units_str)
                 
-                if margin_shares_total is None or margin_balance_thousands is None:
-                    continue
-                
-                # 轉換單位：融資餘額從仟元轉為元
-                margin_balance = margin_balance_thousands * 1000  # 元
-                
-                # 計算融資維持率
-                # 注意：這裡使用簡化計算，實際需要個股數據才能精確計算
-                # 近似方法：假設平均融資價格 = 融資餘額 / 融資股數
-                if margin_shares_total > 0:
-                    avg_margin_price = margin_balance / margin_shares_total
-                    # 融資股票市值 = 融資股數 × 平均價格
-                    margin_market_value = margin_shares_total * avg_margin_price
-                    # 融資維持率 = 市值 / 融資餘額
-                    margin_maintenance_ratio = margin_market_value / margin_balance if margin_balance > 0 else None
+                # 計算券資比
+                if margin_today_balance_units and margin_today_balance_units > 0:
+                    short_margin_ratio = short_today_balance_units / margin_today_balance_units if short_today_balance_units else None
                 else:
-                    margin_market_value = None
-                    margin_maintenance_ratio = None
+                    short_margin_ratio = None
+                
+                # 計算融資餘額變化率
+                if margin_prev_balance_amount and margin_prev_balance_amount > 0:
+                    margin_balance_change_rate = (margin_today_balance_amount - margin_prev_balance_amount) / margin_prev_balance_amount if margin_today_balance_amount is not None else None
+                else:
+                    margin_balance_change_rate = None
+                
+                # 計算融資餘額淨增減
+                if margin_today_balance_amount is not None and margin_prev_balance_amount is not None:
+                    margin_balance_net_change = margin_today_balance_amount - margin_prev_balance_amount
+                else:
+                    margin_balance_net_change = None
+                
+                # 計算融資買賣比
+                if margin_sell_amount and margin_sell_amount > 0:
+                    margin_buy_sell_ratio = margin_buy_amount / margin_sell_amount if margin_buy_amount else None
+                else:
+                    margin_buy_sell_ratio = None
+                
+                # 計算融資買賣淨額
+                if margin_buy_amount is not None and margin_sell_amount is not None:
+                    margin_buy_sell_net = margin_buy_amount - margin_sell_amount
+                else:
+                    margin_buy_sell_net = None
+                
+                # 計算融券餘額變化率
+                if short_prev_balance_units and short_prev_balance_units > 0:
+                    short_balance_change_rate = (short_today_balance_units - short_prev_balance_units) / short_prev_balance_units if short_today_balance_units is not None else None
+                else:
+                    short_balance_change_rate = None
+                
+                # 計算融券餘額淨增減
+                if short_today_balance_units is not None and short_prev_balance_units is not None:
+                    short_balance_net_change = short_today_balance_units - short_prev_balance_units
+                else:
+                    short_balance_net_change = None
+                
+                # 計算融券買賣比
+                if short_buy_units and short_buy_units > 0:
+                    short_buy_sell_ratio = short_sell_units / short_buy_units if short_sell_units else None
+                else:
+                    short_buy_sell_ratio = None
+                
+                # 計算融券買賣淨額
+                if short_sell_units is not None and short_buy_units is not None:
+                    short_buy_sell_net = short_sell_units - short_buy_units
+                else:
+                    short_buy_sell_net = None
                 
                 # 更新資料庫
                 update_query = """
                     UPDATE market_margin_data 
-                    SET margin_shares_total = ?,
-                        margin_balance = ?,
-                        margin_market_value = ?,
-                        margin_maintenance_ratio = ?
+                    SET short_margin_ratio = ?,
+                        margin_balance_change_rate = ?,
+                        margin_balance_net_change = ?,
+                        margin_buy_sell_ratio = ?,
+                        margin_buy_sell_net = ?,
+                        short_balance_change_rate = ?,
+                        short_balance_net_change = ?,
+                        short_buy_sell_ratio = ?,
+                        short_buy_sell_net = ?
                     WHERE date = ?
                 """
                 cursor.execute(update_query, (
-                    margin_shares_total,
-                    margin_balance,
-                    margin_market_value,
-                    margin_maintenance_ratio,
+                    short_margin_ratio,
+                    margin_balance_change_rate,
+                    margin_balance_net_change,
+                    margin_buy_sell_ratio,
+                    margin_buy_sell_net,
+                    short_balance_change_rate,
+                    short_balance_net_change,
+                    short_buy_sell_ratio,
+                    short_buy_sell_net,
                     date
                 ))
                 updated_count += 1
@@ -457,7 +530,102 @@ class MarginDataCollector:
             
         except Exception as e:
             conn.rollback()
-            print(f"[Error] 計算融資維持率失敗: {e}")
+            print(f"[Error] 計算衍生指標失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def migrate_remove_old_columns(self):
+        """
+        遷移資料表，移除舊的計算欄位（margin_shares_total, margin_balance, margin_market_value, margin_maintenance_ratio）
+        
+        注意：SQLite 不支援直接刪除欄位，因此採用「建立新表 + 遷移資料 + 刪除舊表」的方式
+        """
+        conn = self.db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # 檢查是否有舊欄位存在
+            cursor.execute("PRAGMA table_info(market_margin_data)")
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
+            
+            old_columns = ['margin_shares_total', 'margin_balance', 'margin_market_value', 'margin_maintenance_ratio']
+            has_old_columns = any(col in column_names for col in old_columns)
+            
+            if not has_old_columns:
+                print("[Info] 資料表中沒有需要移除的舊欄位")
+                return
+            
+            print("[Info] 開始遷移資料表，移除舊的計算欄位...")
+            
+            # 建立新表（不包含舊欄位）
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS market_margin_data_new (
+                    date TEXT PRIMARY KEY,
+                    margin_buy_units TEXT,
+                    margin_sell_units TEXT,
+                    margin_cash_repay_units TEXT,
+                    margin_prev_balance_units TEXT,
+                    margin_today_balance_units TEXT,
+                    short_buy_units TEXT,
+                    short_sell_units TEXT,
+                    short_cash_repay_units TEXT,
+                    short_prev_balance_units TEXT,
+                    short_today_balance_units TEXT,
+                    margin_buy_amount TEXT,
+                    margin_sell_amount TEXT,
+                    margin_cash_repay_amount TEXT,
+                    margin_prev_balance_amount TEXT,
+                    margin_today_balance_amount TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            
+            # 遷移資料（排除舊欄位）
+            cursor.execute('''
+                INSERT INTO market_margin_data_new (
+                    date,
+                    margin_buy_units, margin_sell_units, margin_cash_repay_units,
+                    margin_prev_balance_units, margin_today_balance_units,
+                    short_buy_units, short_sell_units, short_cash_repay_units,
+                    short_prev_balance_units, short_today_balance_units,
+                    margin_buy_amount, margin_sell_amount, margin_cash_repay_amount,
+                    margin_prev_balance_amount, margin_today_balance_amount,
+                    created_at
+                )
+                SELECT 
+                    date,
+                    margin_buy_units, margin_sell_units, margin_cash_repay_units,
+                    margin_prev_balance_units, margin_today_balance_units,
+                    short_buy_units, short_sell_units, short_cash_repay_units,
+                    short_prev_balance_units, short_today_balance_units,
+                    margin_buy_amount, margin_sell_amount, margin_cash_repay_amount,
+                    margin_prev_balance_amount, margin_today_balance_amount,
+                    created_at
+                FROM market_margin_data
+            ''')
+            
+            # 刪除舊表
+            cursor.execute("DROP TABLE market_margin_data")
+            
+            # 重新命名新表
+            cursor.execute("ALTER TABLE market_margin_data_new RENAME TO market_margin_data")
+            
+            # 重新建立索引
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_margin_date ON market_margin_data(date)")
+            
+            conn.commit()
+            print("[Info] 資料表遷移完成，舊欄位已移除")
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 資料表遷移失敗: {e}")
+            # 如果失敗，嘗試刪除新表
+            try:
+                cursor.execute("DROP TABLE IF EXISTS market_margin_data_new")
+            except:
+                pass
             raise
         finally:
             conn.close()

@@ -391,7 +391,7 @@ class DatabaseManager:
     
     def init_market_margin_table(self):
         """
-        初始化大盤融資維持率資料表（market_margin_data）
+        初始化大盤融資融券資料表（market_margin_data）
         儲存從證交所 MI_MARGN API 取得的每日融資融券原始數據
         """
         conn = self.get_connection()
@@ -423,17 +423,17 @@ class DatabaseManager:
                 )
             ''')
             conn.commit()
-            print("[Info] 大盤融資維持率資料表初始化完成")
+            print("[Info] 大盤融資融券資料表初始化完成")
         except Exception as e:
             conn.rollback()
-            print(f"[Error] 初始化大盤融資維持率資料表失敗: {e}")
+            print(f"[Error] 初始化大盤融資融券資料表失敗: {e}")
             raise
         finally:
             conn.close()
     
     def get_market_margin_data(self, start_date=None, end_date=None):
         """
-        取得大盤融資維持率資料
+        取得大盤融資融券資料
         
         參數:
         - start_date: 起始日期（YYYYMMDD）
