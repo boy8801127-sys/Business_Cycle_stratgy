@@ -897,4 +897,405 @@ class DatabaseManager:
         self.init_composite_indicators_table()
         self.init_business_cycle_signal_components_table()
         print("[Info] 所有景氣指標資料表初始化完成")
+    
+    def create_chinese_views(self):
+        """
+        為所有資料表建立中文別名 VIEW
+        使用 vw_ 前綴命名，例如：vw_tw_stock_price_data
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            print("\n[Info] 開始建立中文別名 VIEW...")
+            
+            # 檢查所有資料表是否存在
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")
+            existing_tables = [row[0] for row in cursor.fetchall()]
+            
+            # 1. vw_tw_stock_price_data - 上市股票和ETF股價資料
+            cursor.execute("DROP VIEW IF EXISTS vw_tw_stock_price_data")
+            cursor.execute('''
+                CREATE VIEW vw_tw_stock_price_data AS
+                SELECT 
+                    date AS '日期',
+                    stock_name AS '股票名稱',
+                    ticker AS '股票代號',
+                    open AS '開盤價',
+                    high AS '最高價',
+                    low AS '最低價',
+                    close AS '收盤價',
+                    volume AS '成交量(股數)',
+                    turnover AS '成交金額(元)',
+                    change AS '漲跌價差',
+                    odd_lot_filled AS '零股填補標記',
+                    created_at AS '資料建立時間'
+                FROM tw_stock_price_data
+            ''')
+            print("[Info] 已建立: vw_tw_stock_price_data")
+            
+            # 2. vw_tw_otc_stock_price_data - 上櫃股票股價資料
+            cursor.execute("DROP VIEW IF EXISTS vw_tw_otc_stock_price_data")
+            cursor.execute('''
+                CREATE VIEW vw_tw_otc_stock_price_data AS
+                SELECT 
+                    date AS '日期',
+                    stock_name AS '股票名稱',
+                    ticker AS '股票代號',
+                    open AS '開盤價',
+                    high AS '最高價',
+                    low AS '最低價',
+                    close AS '收盤價',
+                    volume AS '成交量(股數)',
+                    turnover AS '成交金額(元)',
+                    change AS '漲跌價差',
+                    odd_lot_filled AS '零股填補標記',
+                    created_at AS '資料建立時間'
+                FROM tw_otc_stock_price_data
+            ''')
+            print("[Info] 已建立: vw_tw_otc_stock_price_data")
+            
+            # 3. vw_tw_price_indices_data - 價格指數資料
+            cursor.execute("DROP VIEW IF EXISTS vw_tw_price_indices_data")
+            cursor.execute('''
+                CREATE VIEW vw_tw_price_indices_data AS
+                SELECT 
+                    date AS '日期',
+                    ticker AS '指數代號',
+                    close_index AS '收盤指數',
+                    change_sign AS '漲跌符號',
+                    change_points AS '漲跌點數',
+                    change_pct AS '漲跌百分比',
+                    special_note AS '特殊註記',
+                    created_at AS '資料建立時間'
+                FROM tw_price_indices_data
+            ''')
+            print("[Info] 已建立: vw_tw_price_indices_data")
+            
+            # 4. vw_tw_return_indices_data - 報酬指數資料
+            cursor.execute("DROP VIEW IF EXISTS vw_tw_return_indices_data")
+            cursor.execute('''
+                CREATE VIEW vw_tw_return_indices_data AS
+                SELECT 
+                    date AS '日期',
+                    ticker AS '指數代號',
+                    close_index AS '收盤指數',
+                    change_sign AS '漲跌符號',
+                    change_points AS '漲跌點數',
+                    change_pct AS '漲跌百分比',
+                    special_note AS '特殊註記',
+                    created_at AS '資料建立時間'
+                FROM tw_return_indices_data
+            ''')
+            print("[Info] 已建立: vw_tw_return_indices_data")
+            
+            # 5. vw_business_cycle_data - 景氣燈號資料
+            cursor.execute("DROP VIEW IF EXISTS vw_business_cycle_data")
+            try:
+                cursor.execute('''
+                    CREATE VIEW vw_business_cycle_data AS
+                    SELECT 
+                        date AS '日期',
+                        score AS '景氣對策信號綜合分數',
+                        val_shifted AS '前一日數值',
+                        signal AS '景氣對策信號(燈號顏色)'
+                    FROM business_cycle_data
+                ''')
+                print("[Info] 已建立: vw_business_cycle_data")
+            except Exception as e:
+                print(f"[Warning] 建立 vw_business_cycle_data 失敗: {e}")
+                raise
+            
+            # 6. vw_leading_indicators_data - 領先指標構成項目
+            cursor.execute("DROP VIEW IF EXISTS vw_leading_indicators_data")
+            try:
+                # 檢查 created_at 欄位是否存在
+                cursor.execute("PRAGMA table_info(leading_indicators_data)")
+                columns = [col[1] for col in cursor.fetchall()]
+                has_created_at = 'created_at' in columns
+                
+                if has_created_at:
+                    view_sql = '''
+                        CREATE VIEW vw_leading_indicators_data AS
+                        SELECT 
+                            date AS '日期',
+                            export_order_index AS '外銷訂單動向指數(以家數計)',
+                            m1b_money_supply AS '貨幣總計數M1B(百萬元)',
+                            m1b_yoy_month AS 'M1B月對月年增率(%)',
+                            m1b_yoy_momentum AS 'M1B年增率動能(%)',
+                            m1b_mom AS 'M1B月對月變化率(%)',
+                            m1b_vs_3m_avg AS 'M1B當月vs前三個月平均變化率(%)',
+                            stock_price_index AS '股價指數(Index1966=100)',
+                            employment_net_entry_rate AS '工業及服務業受僱員工淨進入率(%)',
+                            building_floor_area AS '建築物開工樓地板面積(千平方公尺)',
+                            semiconductor_import AS '名目半導體設備進口(新臺幣百萬元)',
+                            created_at AS '資料建立時間'
+                        FROM leading_indicators_data
+                    '''
+                else:
+                    view_sql = '''
+                        CREATE VIEW vw_leading_indicators_data AS
+                        SELECT 
+                            date AS '日期',
+                            export_order_index AS '外銷訂單動向指數(以家數計)',
+                            m1b_money_supply AS '貨幣總計數M1B(百萬元)',
+                            m1b_yoy_month AS 'M1B月對月年增率(%)',
+                            m1b_yoy_momentum AS 'M1B年增率動能(%)',
+                            m1b_mom AS 'M1B月對月變化率(%)',
+                            m1b_vs_3m_avg AS 'M1B當月vs前三個月平均變化率(%)',
+                            stock_price_index AS '股價指數(Index1966=100)',
+                            employment_net_entry_rate AS '工業及服務業受僱員工淨進入率(%)',
+                            building_floor_area AS '建築物開工樓地板面積(千平方公尺)',
+                            semiconductor_import AS '名目半導體設備進口(新臺幣百萬元)'
+                        FROM leading_indicators_data
+                    '''
+                
+                cursor.execute(view_sql)
+                print("[Info] 已建立: vw_leading_indicators_data")
+            except Exception as e:
+                print(f"[Warning] 建立 vw_leading_indicators_data 失敗: {e}")
+                raise
+            
+            # 7. vw_coincident_indicators_data - 同時指標構成項目
+            cursor.execute("DROP VIEW IF EXISTS vw_coincident_indicators_data")
+            cursor.execute("PRAGMA table_info(coincident_indicators_data)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_created_at = 'created_at' in columns
+            if has_created_at:
+                cursor.execute('''
+                    CREATE VIEW vw_coincident_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        industrial_production_index AS '工業生產指數(Index2021=100)',
+                        electricity_consumption AS '電力(企業)總用電量(十億度)',
+                        manufacturing_sales_index AS '製造業銷售量指數(Index2021=100)',
+                        wholesale_retail_revenue AS '批發零售及餐飲業營業額(十億元)',
+                        overtime_hours AS '工業及服務業加班工時(小時)',
+                        export_value AS '海關出口值(十億元)',
+                        machinery_import AS '機械及電機設備進口值(十億元)',
+                        created_at AS '資料建立時間'
+                    FROM coincident_indicators_data
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE VIEW vw_coincident_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        industrial_production_index AS '工業生產指數(Index2021=100)',
+                        electricity_consumption AS '電力(企業)總用電量(十億度)',
+                        manufacturing_sales_index AS '製造業銷售量指數(Index2021=100)',
+                        wholesale_retail_revenue AS '批發零售及餐飲業營業額(十億元)',
+                        overtime_hours AS '工業及服務業加班工時(小時)',
+                        export_value AS '海關出口值(十億元)',
+                        machinery_import AS '機械及電機設備進口值(十億元)'
+                    FROM coincident_indicators_data
+                ''')
+            print("[Info] 已建立: vw_coincident_indicators_data")
+            
+            # 8. vw_lagging_indicators_data - 落後指標構成項目
+            cursor.execute("DROP VIEW IF EXISTS vw_lagging_indicators_data")
+            cursor.execute("PRAGMA table_info(lagging_indicators_data)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_created_at = 'created_at' in columns
+            if has_created_at:
+                cursor.execute('''
+                    CREATE VIEW vw_lagging_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        unemployment_rate AS '失業率(%)',
+                        labor_cost_index AS '製造業單位產出勞動成本指數(2021=100)',
+                        loan_interest_rate AS '五大銀行新承做放款平均利率(年息百分比)',
+                        financial_institution_loans AS '全體金融機構放款與投資(10億元)',
+                        manufacturing_inventory AS '製造業存貨價值(千元)',
+                        created_at AS '資料建立時間'
+                    FROM lagging_indicators_data
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE VIEW vw_lagging_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        unemployment_rate AS '失業率(%)',
+                        labor_cost_index AS '製造業單位產出勞動成本指數(2021=100)',
+                        loan_interest_rate AS '五大銀行新承做放款平均利率(年息百分比)',
+                        financial_institution_loans AS '全體金融機構放款與投資(10億元)',
+                        manufacturing_inventory AS '製造業存貨價值(千元)'
+                    FROM lagging_indicators_data
+                ''')
+            print("[Info] 已建立: vw_lagging_indicators_data")
+            
+            # 9. vw_composite_indicators_data - 景氣指標與燈號（綜合指標）
+            cursor.execute("DROP VIEW IF EXISTS vw_composite_indicators_data")
+            cursor.execute("PRAGMA table_info(composite_indicators_data)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_created_at = 'created_at' in columns
+            if has_created_at:
+                cursor.execute('''
+                    CREATE VIEW vw_composite_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        leading_index AS '領先指標綜合指數',
+                        leading_index_no_trend AS '領先指標不含趨勢指數',
+                        coincident_index AS '同時指標綜合指數',
+                        coincident_index_no_trend AS '同時指標不含趨勢指數',
+                        lagging_index AS '落後指標綜合指數',
+                        lagging_index_no_trend AS '落後指標不含趨勢指數',
+                        business_cycle_score AS '景氣對策信號綜合分數',
+                        business_cycle_signal AS '景氣對策信號(燈號顏色)',
+                        created_at AS '資料建立時間'
+                    FROM composite_indicators_data
+                ''')
+            else:
+                cursor.execute('''
+                    CREATE VIEW vw_composite_indicators_data AS
+                    SELECT 
+                        date AS '日期',
+                        leading_index AS '領先指標綜合指數',
+                        leading_index_no_trend AS '領先指標不含趨勢指數',
+                        coincident_index AS '同時指標綜合指數',
+                        coincident_index_no_trend AS '同時指標不含趨勢指數',
+                        lagging_index AS '落後指標綜合指數',
+                        lagging_index_no_trend AS '落後指標不含趨勢指數',
+                        business_cycle_score AS '景氣對策信號綜合分數',
+                        business_cycle_signal AS '景氣對策信號(燈號顏色)'
+                    FROM composite_indicators_data
+                ''')
+            print("[Info] 已建立: vw_composite_indicators_data")
+            
+            # 10. vw_business_cycle_signal_components_data - 景氣對策信號構成項目
+            cursor.execute("DROP VIEW IF EXISTS vw_business_cycle_signal_components_data")
+            cursor.execute("PRAGMA table_info(business_cycle_signal_components_data)")
+            columns = [col[1] for col in cursor.fetchall()]
+            has_created_at = 'created_at' in columns
+            has_m1b_yoy_month = 'm1b_yoy_month' in columns
+            has_m1b_yoy_rolling_12m = 'm1b_yoy_rolling_12m' in columns
+            
+            # 根據實際存在的欄位動態建立 VIEW
+            select_fields = ["date AS '日期'"]
+            if 'm1b_money_supply' in columns:
+                select_fields.append("m1b_money_supply AS '貨幣總計數M1B(百萬元)'")
+            if has_m1b_yoy_month:
+                select_fields.append("m1b_yoy_month AS 'M1B月對月年增率(%)'")
+            if has_m1b_yoy_rolling_12m:
+                select_fields.append("m1b_yoy_rolling_12m AS 'M1B滾動12個月年增率(%)'")
+            if 'stock_price_index' in columns:
+                select_fields.append("stock_price_index AS '股價指數(Index1966=100)'")
+            if 'industrial_production_index' in columns:
+                select_fields.append("industrial_production_index AS '工業生產指數(Index2021=100)'")
+            if 'overtime_hours' in columns:
+                select_fields.append("overtime_hours AS '工業及服務業加班工時(小時)'")
+            if 'export_value' in columns:
+                select_fields.append("export_value AS '海關出口值(十億元)'")
+            if 'machinery_import' in columns:
+                select_fields.append("machinery_import AS '機械及電機設備進口值(十億元)'")
+            if 'manufacturing_sales_index' in columns:
+                select_fields.append("manufacturing_sales_index AS '製造業銷售量指數(Index2021=100)'")
+            if 'wholesale_retail_revenue' in columns:
+                select_fields.append("wholesale_retail_revenue AS '批發零售及餐飲業營業額(十億元)'")
+            if has_created_at:
+                select_fields.append("created_at AS '資料建立時間'")
+            
+            view_sql = f'''
+                CREATE VIEW vw_business_cycle_signal_components_data AS
+                SELECT 
+                    {', '.join(select_fields)}
+                FROM business_cycle_signal_components_data
+            '''
+            
+            cursor.execute(view_sql)
+            print("[Info] 已建立: vw_business_cycle_signal_components_data")
+            
+            # 11. vw_market_margin_data - 大盤融資融券資料
+            cursor.execute("DROP VIEW IF EXISTS vw_market_margin_data")
+            cursor.execute('''
+                CREATE VIEW vw_market_margin_data AS
+                SELECT 
+                    date AS '日期',
+                    margin_buy_units AS '融資買進(交易單位)',
+                    margin_sell_units AS '融資賣出(交易單位)',
+                    margin_cash_repay_units AS '融資現金券償還(交易單位)',
+                    margin_prev_balance_units AS '融資前日餘額(交易單位)',
+                    margin_today_balance_units AS '融資今日餘額(交易單位)',
+                    short_buy_units AS '融券買進(交易單位)',
+                    short_sell_units AS '融券賣出(交易單位)',
+                    short_cash_repay_units AS '融券現金券償還(交易單位)',
+                    short_prev_balance_units AS '融券前日餘額(交易單位)',
+                    short_today_balance_units AS '融券今日餘額(交易單位)',
+                    margin_buy_amount AS '融資買進(仟元)',
+                    margin_sell_amount AS '融資賣出(仟元)',
+                    margin_cash_repay_amount AS '融資現金券償還(仟元)',
+                    margin_prev_balance_amount AS '融資前日餘額(仟元)',
+                    margin_today_balance_amount AS '融資今日餘額(仟元)',
+                    short_margin_ratio AS '券資比',
+                    margin_balance_change_rate AS '融資餘額變化率',
+                    margin_balance_net_change AS '融資餘額淨增減(仟元)',
+                    margin_buy_sell_ratio AS '融資買賣比',
+                    margin_buy_sell_net AS '融資買賣淨額(仟元)',
+                    short_balance_change_rate AS '融券餘額變化率',
+                    short_balance_net_change AS '融券餘額淨增減(交易單位)',
+                    short_buy_sell_ratio AS '融券買賣比',
+                    short_buy_sell_net AS '融券買賣淨額(交易單位)',
+                    created_at AS '資料建立時間'
+                FROM market_margin_data
+            ''')
+            print("[Info] 已建立: vw_market_margin_data")
+            
+            # 12. vw_TFE_VIX_data - VIX 原始資料
+            cursor.execute("DROP VIEW IF EXISTS vw_TFE_VIX_data")
+            cursor.execute('''
+                CREATE VIEW vw_TFE_VIX_data AS
+                SELECT 
+                    date AS '日期',
+                    time AS '時間',
+                    vix AS 'VIX指數'
+                FROM TFE_VIX_data
+            ''')
+            print("[Info] 已建立: vw_TFE_VIX_data")
+            
+            # 13. vw_VIX_data - VIX 月K線資料
+            cursor.execute("DROP VIEW IF EXISTS vw_VIX_data")
+            cursor.execute('''
+                CREATE VIEW vw_VIX_data AS
+                SELECT 
+                    time AS '時間',
+                    tradeDate AS '交易日期',
+                    open AS '開盤',
+                    high AS '最高',
+                    low AS '最低',
+                    close AS '收盤',
+                    volume AS '成交量',
+                    millionAmount AS '成交金額(百萬元)'
+                FROM VIX_data
+            ''')
+            print("[Info] 已建立: vw_VIX_data")
+            
+            conn.commit()
+            
+            # 檢查所有原始資料表的資料筆數
+            print(f"\n[Info] 原始資料表資料筆數統計：")
+            for table_name in existing_tables:
+                if table_name not in ['strategy_result', 'twse_margin_data']:  # 跳過不需要建立 VIEW 的表
+                    try:
+                        cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                        table_count = cursor.fetchone()[0]
+                        if table_count == 0:
+                            print(f"  ⚠ {table_name}: {table_count} 筆（空的）")
+                        else:
+                            print(f"  ✓ {table_name}: {table_count:,} 筆")
+                    except Exception as e:
+                        print(f"  ✗ {table_name}: 查詢失敗 ({e})")
+            
+            print("\n[Info] 所有中文別名 VIEW 建立完成！")
+            print("[Info] 共建立 13 個 VIEW")
+            print("\n[Info] 使用範例：")
+            print("  SELECT 日期, 股票代號, 收盤價 FROM vw_tw_stock_price_data WHERE 股票代號 = '006208';")
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 建立 VIEW 失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+        finally:
+            conn.close()
 

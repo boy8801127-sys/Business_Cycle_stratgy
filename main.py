@@ -399,6 +399,7 @@ def print_menu():
     print("12. 執行回測（新系統，基於 Orange 資料）")
     print("13. 收集融資融券數據（2015-2025年）")
     print("14. 下載並重新計算VIX月K線（自動偵測當月缺失日期）")
+    print("15. 建立中文別名 VIEW（為所有資料表建立中文欄位名稱視圖）")
     print("0. 離開")
     print("="*60)
 
@@ -2045,6 +2046,25 @@ def collect_margin_data():
         traceback.print_exc()
 
 
+def create_chinese_views():
+    """選項 15：建立中文別名 VIEW"""
+    print("\n[選項 15] 建立中文別名 VIEW")
+    print("-" * 60)
+    print("此功能會為所有資料表建立 VIEW，使用中文欄位名稱")
+    print("建立後可使用中文欄位名稱進行查詢，例如：")
+    print("  SELECT 日期, 股票代號, 收盤價 FROM vw_tw_stock_price_data;")
+    print("-" * 60)
+    
+    try:
+        db_manager = DatabaseManager()
+        db_manager.create_chinese_views()
+        print("\n[完成] 所有 VIEW 建立完成！")
+    except Exception as e:
+        print(f"[Error] 建立 VIEW 失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def download_vix_data(date_str: str, save_path: Path, retry_times=3, retry_delay=5):
     """
     下載TAIFEX VIX資料
@@ -2526,8 +2546,10 @@ def main():
                 collect_margin_data()
             elif choice == '14':
                 download_and_recalculate_vix_monthly()
+            elif choice == '15':
+                create_chinese_views()
             else:
-                print("[Error] 無效的選項，請輸入 0-14 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-15 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):
