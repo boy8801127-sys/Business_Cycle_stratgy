@@ -1,0 +1,1592 @@
+[
+    {
+        "time": 1759248000000,
+        "tradeDate": 1761840000000,
+        "open": 21.76000,
+        "high": 30.91000,
+        "low": 21.49000,
+        "close": 25.30000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1756656000000,
+        "tradeDate": 1759161600000,
+        "open": 20.86000,
+        "high": 23.65000,
+        "low": 17.37000,
+        "close": 21.93000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1753977600000,
+        "tradeDate": 1756396800000,
+        "open": 24.70000,
+        "high": 25.95000,
+        "low": 17.91000,
+        "close": 19.65000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1751299200000,
+        "tradeDate": 1753891200000,
+        "open": 24.41000,
+        "high": 25.90000,
+        "low": 19.91000,
+        "close": 23.50000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1748707200000,
+        "tradeDate": 1751212800000,
+        "open": 27.71000,
+        "high": 27.75000,
+        "low": 21.77000,
+        "close": 24.40000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1746028800000,
+        "tradeDate": 1748448000000,
+        "open": 27.12000,
+        "high": 32.50000,
+        "low": 22.61000,
+        "close": 26.84000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1743436800000,
+        "tradeDate": 1745942400000,
+        "open": 24.75000,
+        "high": 47.65000,
+        "low": 23.69000,
+        "close": 28.56000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1740758400000,
+        "tradeDate": 1743350400000,
+        "open": 21.64000,
+        "high": 26.00000,
+        "low": 18.77000,
+        "close": 25.94000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1738339200000,
+        "tradeDate": 1740585600000,
+        "open": 25.20000,
+        "high": 25.74000,
+        "low": 17.66000,
+        "close": 19.89000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1735660800000,
+        "tradeDate": 1737475200000,
+        "open": 18.63000,
+        "high": 23.45000,
+        "low": 17.57000,
+        "close": 20.48000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1732982400000,
+        "tradeDate": 1735574400000,
+        "open": 21.93000,
+        "high": 22.14000,
+        "low": 17.00000,
+        "close": 18.01000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1730390400000,
+        "tradeDate": 1732809600000,
+        "open": 30.61000,
+        "high": 30.87000,
+        "low": 20.36000,
+        "close": 21.81000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1727712000000,
+        "tradeDate": 1730217600000,
+        "open": 24.96000,
+        "high": 29.50000,
+        "low": 23.69000,
+        "close": 27.84000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1725120000000,
+        "tradeDate": 1727625600000,
+        "open": 22.53000,
+        "high": 30.91000,
+        "low": 20.55000,
+        "close": 25.46000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1722441600000,
+        "tradeDate": 1724947200000,
+        "open": 23.54000,
+        "high": 48.05000,
+        "low": 21.46000,
+        "close": 21.72000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1719763200000,
+        "tradeDate": 1722355200000,
+        "open": 20.73000,
+        "high": 25.94000,
+        "low": 18.49000,
+        "close": 24.09000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1717171200000,
+        "tradeDate": 1719504000000,
+        "open": 17.40000,
+        "high": 22.19000,
+        "low": 16.75000,
+        "close": 20.20000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1714492800000,
+        "tradeDate": 1717084800000,
+        "open": 17.69000,
+        "high": 18.85000,
+        "low": 15.25000,
+        "close": 18.22000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1711900800000,
+        "tradeDate": 1714406400000,
+        "open": 14.42000,
+        "high": 25.07000,
+        "low": 14.16000,
+        "close": 18.25000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1709222400000,
+        "tradeDate": 1711641600000,
+        "open": 12.99000,
+        "high": 17.96000,
+        "low": 12.86000,
+        "close": 14.23000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1706716800000,
+        "tradeDate": 1709136000000,
+        "open": 13.49000,
+        "high": 14.99000,
+        "low": 12.76000,
+        "close": 13.42000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1704038400000,
+        "tradeDate": 1706630400000,
+        "open": 14.25000,
+        "high": 16.69000,
+        "low": 11.99000,
+        "close": 13.23000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1701360000000,
+        "tradeDate": 1703779200000,
+        "open": 13.40000,
+        "high": 14.17000,
+        "low": 12.67000,
+        "close": 13.67000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1698768000000,
+        "tradeDate": 1701273600000,
+        "open": 16.63000,
+        "high": 16.87000,
+        "low": 12.77000,
+        "close": 13.08000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1696089600000,
+        "tradeDate": 1698681600000,
+        "open": 14.33000,
+        "high": 17.53000,
+        "low": 13.85000,
+        "close": 17.07000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1693497600000,
+        "tradeDate": 1695830400000,
+        "open": 14.14000,
+        "high": 15.22000,
+        "low": 13.32000,
+        "close": 14.51000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1690819200000,
+        "tradeDate": 1693411200000,
+        "open": 15.56000,
+        "high": 18.09000,
+        "low": 13.68000,
+        "close": 14.08000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1688140800000,
+        "tradeDate": 1690732800000,
+        "open": 14.96000,
+        "high": 16.88000,
+        "low": 14.34000,
+        "close": 16.31000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1685548800000,
+        "tradeDate": 1688054400000,
+        "open": 15.42000,
+        "high": 16.66000,
+        "low": 14.21000,
+        "close": 14.21000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1682870400000,
+        "tradeDate": 1685462400000,
+        "open": 15.76000,
+        "high": 16.81000,
+        "low": 12.56000,
+        "close": 16.38000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1680278400000,
+        "tradeDate": 1682611200000,
+        "open": 17.05000,
+        "high": 17.60000,
+        "low": 14.53000,
+        "close": 15.23000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1677600000000,
+        "tradeDate": 1680192000000,
+        "open": 17.40000,
+        "high": 20.80000,
+        "low": 15.78000,
+        "close": 16.95000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1675180800000,
+        "tradeDate": 1677168000000,
+        "open": 17.98000,
+        "high": 19.11000,
+        "low": 15.61000,
+        "close": 17.40000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1672502400000,
+        "tradeDate": 1675094400000,
+        "open": 18.20000,
+        "high": 19.79000,
+        "low": 16.47000,
+        "close": 18.46000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1669824000000,
+        "tradeDate": 1672329600000,
+        "open": 20.04000,
+        "high": 23.03000,
+        "low": 14.81000,
+        "close": 16.42000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1667232000000,
+        "tradeDate": 1669737600000,
+        "open": 24.86000,
+        "high": 25.06000,
+        "low": 18.83000,
+        "close": 20.26000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1664553600000,
+        "tradeDate": 1667145600000,
+        "open": 26.35000,
+        "high": 28.29000,
+        "low": 22.77000,
+        "close": 24.88000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1661961600000,
+        "tradeDate": 1664467200000,
+        "open": 21.77000,
+        "high": 25.54000,
+        "low": 20.05000,
+        "close": 25.08000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1659283200000,
+        "tradeDate": 1661875200000,
+        "open": 20.76000,
+        "high": 26.10000,
+        "low": 15.68000,
+        "close": 19.84000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1656604800000,
+        "tradeDate": 1659024000000,
+        "open": 24.37000,
+        "high": 29.40000,
+        "low": 19.81000,
+        "close": 19.90000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1654012800000,
+        "tradeDate": 1656518400000,
+        "open": 18.39000,
+        "high": 24.46000,
+        "low": 17.42000,
+        "close": 24.37000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1651334400000,
+        "tradeDate": 1653926400000,
+        "open": 22.20000,
+        "high": 26.05000,
+        "low": 18.13000,
+        "close": 18.32000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1648742400000,
+        "tradeDate": 1651161600000,
+        "open": 18.38000,
+        "high": 23.15000,
+        "low": 17.08000,
+        "close": 20.68000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1646064000000,
+        "tradeDate": 1648656000000,
+        "open": 22.23000,
+        "high": 28.82000,
+        "low": 16.22000,
+        "close": 17.30000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1643644800000,
+        "tradeDate": 1645718400000,
+        "open": 22.73000,
+        "high": 25.41000,
+        "low": 15.69000,
+        "close": 22.66000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1640966400000,
+        "tradeDate": 1643126400000,
+        "open": 14.99000,
+        "high": 24.75000,
+        "low": 14.85000,
+        "close": 24.01000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1638288000000,
+        "tradeDate": 1640793600000,
+        "open": 19.95000,
+        "high": 21.29000,
+        "low": 14.40000,
+        "close": 14.47000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1635696000000,
+        "tradeDate": 1638201600000,
+        "open": 19.01000,
+        "high": 21.67000,
+        "low": 15.03000,
+        "close": 19.77000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1633017600000,
+        "tradeDate": 1635436800000,
+        "open": 23.30000,
+        "high": 27.19000,
+        "low": 17.57000,
+        "close": 18.98000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1630425600000,
+        "tradeDate": 1632931200000,
+        "open": 19.48000,
+        "high": 24.74000,
+        "low": 16.25000,
+        "close": 22.30000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1627747200000,
+        "tradeDate": 1630339200000,
+        "open": 21.50000,
+        "high": 26.53000,
+        "low": 18.85000,
+        "close": 19.16000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1625068800000,
+        "tradeDate": 1627574400000,
+        "open": 19.03000,
+        "high": 25.66000,
+        "low": 18.01000,
+        "close": 22.02000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1622476800000,
+        "tradeDate": 1624982400000,
+        "open": 23.23000,
+        "high": 24.60000,
+        "low": 16.64000,
+        "close": 19.67000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1619798400000,
+        "tradeDate": 1622390400000,
+        "open": 19.62000,
+        "high": 43.91000,
+        "low": 19.48000,
+        "close": 23.88000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1617206400000,
+        "tradeDate": 1619625600000,
+        "open": 17.48000,
+        "high": 20.52000,
+        "low": 16.14000,
+        "close": 18.76000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1614528000000,
+        "tradeDate": 1617120000000,
+        "open": 23.80000,
+        "high": 26.64000,
+        "low": 16.01000,
+        "close": 17.63000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1612108800000,
+        "tradeDate": 1614268800000,
+        "open": 26.69000,
+        "high": 28.65000,
+        "low": 21.84000,
+        "close": 26.26000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1609430400000,
+        "tradeDate": 1611849600000,
+        "open": 18.64000,
+        "high": 27.63000,
+        "low": 18.17000,
+        "close": 27.63000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1606752000000,
+        "tradeDate": 1609344000000,
+        "open": 18.03000,
+        "high": 20.55000,
+        "low": 16.92000,
+        "close": 18.19000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1604160000000,
+        "tradeDate": 1606665600000,
+        "open": 27.00000,
+        "high": 28.03000,
+        "low": 16.86000,
+        "close": 18.57000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1601481600000,
+        "tradeDate": 1603987200000,
+        "open": 22.32000,
+        "high": 27.35000,
+        "low": 20.11000,
+        "close": 27.35000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1598889600000,
+        "tradeDate": 1601395200000,
+        "open": 22.90000,
+        "high": 24.61000,
+        "low": 16.95000,
+        "close": 21.70000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1596211200000,
+        "tradeDate": 1598803200000,
+        "open": 26.99000,
+        "high": 36.03000,
+        "low": 20.67000,
+        "close": 24.42000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1593532800000,
+        "tradeDate": 1596124800000,
+        "open": 21.23000,
+        "high": 28.68000,
+        "low": 19.08000,
+        "close": 26.20000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1590940800000,
+        "tradeDate": 1593446400000,
+        "open": 23.73000,
+        "high": 29.37000,
+        "low": 20.01000,
+        "close": 22.30000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1588262400000,
+        "tradeDate": 1590681600000,
+        "open": 33.63000,
+        "high": 34.62000,
+        "low": 22.27000,
+        "close": 24.01000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1585670400000,
+        "tradeDate": 1588176000000,
+        "open": 43.20000,
+        "high": 43.53000,
+        "low": 25.96000,
+        "close": 29.06000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1582992000000,
+        "tradeDate": 1585584000000,
+        "open": 26.40000,
+        "high": 56.58000,
+        "low": 19.11000,
+        "close": 44.65000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1580486400000,
+        "tradeDate": 1582732800000,
+        "open": 21.24000,
+        "high": 23.66000,
+        "low": 15.01000,
+        "close": 22.92000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1577808000000,
+        "tradeDate": 1580400000000,
+        "open": 14.39000,
+        "high": 19.81000,
+        "low": 11.26000,
+        "close": 19.15000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1575129600000,
+        "tradeDate": 1577721600000,
+        "open": 14.69000,
+        "high": 15.03000,
+        "low": 13.03000,
+        "close": 14.71000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1572537600000,
+        "tradeDate": 1574956800000,
+        "open": 12.35000,
+        "high": 15.36000,
+        "low": 11.93000,
+        "close": 14.84000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1569859200000,
+        "tradeDate": 1572451200000,
+        "open": 14.53000,
+        "high": 16.16000,
+        "low": 11.56000,
+        "close": 12.25000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1567267200000,
+        "tradeDate": 1569513600000,
+        "open": 14.74000,
+        "high": 15.18000,
+        "low": 12.84000,
+        "close": 14.50000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1564588800000,
+        "tradeDate": 1567094400000,
+        "open": 14.18000,
+        "high": 21.24000,
+        "low": 13.52000,
+        "close": 14.41000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1561910400000,
+        "tradeDate": 1564502400000,
+        "open": 13.83000,
+        "high": 13.84000,
+        "low": 11.43000,
+        "close": 13.52000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1559318400000,
+        "tradeDate": 1561651200000,
+        "open": 16.72000,
+        "high": 17.24000,
+        "low": 13.21000,
+        "close": 14.88000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1556640000000,
+        "tradeDate": 1559232000000,
+        "open": 13.92000,
+        "high": 20.71000,
+        "low": 12.41000,
+        "close": 16.01000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1554048000000,
+        "tradeDate": 1556553600000,
+        "open": 13.47000,
+        "high": 14.40000,
+        "low": 12.46000,
+        "close": 13.75000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1551369600000,
+        "tradeDate": 1553788800000,
+        "open": 13.58000,
+        "high": 14.92000,
+        "low": 11.40000,
+        "close": 13.39000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1548950400000,
+        "tradeDate": 1551196800000,
+        "open": 15.30000,
+        "high": 15.41000,
+        "low": 12.62000,
+        "close": 12.77000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1546272000000,
+        "tradeDate": 1548777600000,
+        "open": 19.58000,
+        "high": 21.96000,
+        "low": 13.83000,
+        "close": 15.76000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1543593600000,
+        "tradeDate": 1545926400000,
+        "open": 18.13000,
+        "high": 23.46000,
+        "low": 16.90000,
+        "close": 20.37000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1541001600000,
+        "tradeDate": 1543507200000,
+        "open": 22.05000,
+        "high": 24.19000,
+        "low": 18.33000,
+        "close": 19.72000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1538323200000,
+        "tradeDate": 1540915200000,
+        "open": 12.95000,
+        "high": 27.14000,
+        "low": 12.76000,
+        "close": 23.05000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1535731200000,
+        "tradeDate": 1538064000000,
+        "open": 13.09000,
+        "high": 15.73000,
+        "low": 12.43000,
+        "close": 13.04000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1533052800000,
+        "tradeDate": 1535644800000,
+        "open": 13.32000,
+        "high": 16.77000,
+        "low": 11.77000,
+        "close": 13.23000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1530374400000,
+        "tradeDate": 1532966400000,
+        "open": 16.05000,
+        "high": 17.83000,
+        "low": 12.90000,
+        "close": 13.43000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1527782400000,
+        "tradeDate": 1530201600000,
+        "open": 13.80000,
+        "high": 18.37000,
+        "low": 13.11000,
+        "close": 15.82000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1525104000000,
+        "tradeDate": 1527696000000,
+        "open": 14.92000,
+        "high": 17.35000,
+        "low": 12.61000,
+        "close": 14.00000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1522512000000,
+        "tradeDate": 1525017600000,
+        "open": 18.28000,
+        "high": 19.76000,
+        "low": 13.60000,
+        "close": 14.66000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1519833600000,
+        "tradeDate": 1522425600000,
+        "open": 19.80000,
+        "high": 21.75000,
+        "low": 14.91000,
+        "close": 17.67000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1517414400000,
+        "tradeDate": 1519660800000,
+        "open": 12.33000,
+        "high": 54.92000,
+        "low": 12.13000,
+        "close": 18.05000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1514736000000,
+        "tradeDate": 1517328000000,
+        "open": 9.89000,
+        "high": 12.76000,
+        "low": 7.82000,
+        "close": 12.58000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1512057600000,
+        "tradeDate": 1514476800000,
+        "open": 10.90000,
+        "high": 14.89000,
+        "low": 9.74000,
+        "close": 9.93000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1509465600000,
+        "tradeDate": 1511971200000,
+        "open": 11.37000,
+        "high": 11.95000,
+        "low": 8.58000,
+        "close": 11.46000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1506787200000,
+        "tradeDate": 1509379200000,
+        "open": 10.84000,
+        "high": 12.35000,
+        "low": 9.99000,
+        "close": 11.85000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1504195200000,
+        "tradeDate": 1506614400000,
+        "open": 12.17000,
+        "high": 14.05000,
+        "low": 10.61000,
+        "close": 11.28000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1501516800000,
+        "tradeDate": 1504108800000,
+        "open": 10.23000,
+        "high": 18.90000,
+        "low": 10.15000,
+        "close": 12.60000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1498838400000,
+        "tradeDate": 1501430400000,
+        "open": 12.62000,
+        "high": 13.01000,
+        "low": 9.73000,
+        "close": 10.90000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1496246400000,
+        "tradeDate": 1498752000000,
+        "open": 10.47000,
+        "high": 12.76000,
+        "low": 9.20000,
+        "close": 12.33000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1493568000000,
+        "tradeDate": 1496160000000,
+        "open": 10.84000,
+        "high": 21.40000,
+        "low": 9.06000,
+        "close": 10.43000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1490976000000,
+        "tradeDate": 1493308800000,
+        "open": 11.48000,
+        "high": 14.87000,
+        "low": 10.52000,
+        "close": 10.52000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1488297600000,
+        "tradeDate": 1490889600000,
+        "open": 12.91000,
+        "high": 16.11000,
+        "low": 9.91000,
+        "close": 11.48000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1485878400000,
+        "tradeDate": 1488211200000,
+        "open": 12.28000,
+        "high": 16.70000,
+        "low": 11.33000,
+        "close": 11.90000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1483200000000,
+        "tradeDate": 1485792000000,
+        "open": 11.88000,
+        "high": 23.02000,
+        "low": 11.08000,
+        "close": 11.96000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1480521600000,
+        "tradeDate": 1483027200000,
+        "open": 13.57000,
+        "high": 15.08000,
+        "low": 11.88000,
+        "close": 12.25000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1477929600000,
+        "tradeDate": 1480435200000,
+        "open": 15.10000,
+        "high": 23.56000,
+        "low": 13.02000,
+        "close": 13.37000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1475251200000,
+        "tradeDate": 1477843200000,
+        "open": 15.50000,
+        "high": 19.37000,
+        "low": 13.31000,
+        "close": 14.62000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1472659200000,
+        "tradeDate": 1475164800000,
+        "open": 14.50000,
+        "high": 19.64000,
+        "low": 13.35000,
+        "close": 15.78000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1469980800000,
+        "tradeDate": 1472572800000,
+        "open": 17.17000,
+        "high": 17.59000,
+        "low": 12.98000,
+        "close": 14.31000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1467302400000,
+        "tradeDate": 1469721600000,
+        "open": 16.28000,
+        "high": 18.15000,
+        "low": 15.31000,
+        "close": 16.83000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1464710400000,
+        "tradeDate": 1467216000000,
+        "open": 15.50000,
+        "high": 25.00000,
+        "low": 14.89000,
+        "close": 16.61000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1462032000000,
+        "tradeDate": 1464624000000,
+        "open": 16.54000,
+        "high": 19.58000,
+        "low": 14.66000,
+        "close": 15.28000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1459440000000,
+        "tradeDate": 1461859200000,
+        "open": 16.34000,
+        "high": 20.68000,
+        "low": 15.30000,
+        "close": 16.80000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1456761600000,
+        "tradeDate": 1459353600000,
+        "open": 18.34000,
+        "high": 18.34000,
+        "low": 13.08000,
+        "close": 16.03000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1454256000000,
+        "tradeDate": 1456675200000,
+        "open": 17.56000,
+        "high": 24.80000,
+        "low": 16.81000,
+        "close": 17.13000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1451577600000,
+        "tradeDate": 1453996800000,
+        "open": 19.04000,
+        "high": 25.92000,
+        "low": 17.13000,
+        "close": 17.68000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1448899200000,
+        "tradeDate": 1451491200000,
+        "open": 22.29000,
+        "high": 26.96000,
+        "low": 18.22000,
+        "close": 20.84000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1446307200000,
+        "tradeDate": 1448812800000,
+        "open": 17.18000,
+        "high": 30.17000,
+        "low": 14.47000,
+        "close": 21.94000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1443628800000,
+        "tradeDate": 1446134400000,
+        "open": 22.39000,
+        "high": 23.04000,
+        "low": 14.17000,
+        "close": 15.12000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1441036800000,
+        "tradeDate": 1443542400000,
+        "open": 28.48000,
+        "high": 32.94000,
+        "low": 17.35000,
+        "close": 23.12000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1438358400000,
+        "tradeDate": 1440950400000,
+        "open": 15.85000,
+        "high": 46.73000,
+        "low": 9.16000,
+        "close": 27.53000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1435680000000,
+        "tradeDate": 1438272000000,
+        "open": 14.75000,
+        "high": 20.84000,
+        "low": 14.04000,
+        "close": 15.05000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1433088000000,
+        "tradeDate": 1435593600000,
+        "open": 14.49000,
+        "high": 16.82000,
+        "low": 12.41000,
+        "close": 14.78000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1430409600000,
+        "tradeDate": 1432828800000,
+        "open": 14.27000,
+        "high": 15.87000,
+        "low": 13.04000,
+        "close": 13.88000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1427817600000,
+        "tradeDate": 1430323200000,
+        "open": 10.70000,
+        "high": 18.07000,
+        "low": 10.01000,
+        "close": 14.25000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1425139200000,
+        "tradeDate": 1427731200000,
+        "open": 11.84000,
+        "high": 13.13000,
+        "low": 9.69000,
+        "close": 10.74000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1422720000000,
+        "tradeDate": 1424966400000,
+        "open": 12.95000,
+        "high": 15.39000,
+        "low": 11.36000,
+        "close": 11.36000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1420041600000,
+        "tradeDate": 1422547200000,
+        "open": 11.95000,
+        "high": 15.89000,
+        "low": 11.20000,
+        "close": 12.26000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1417363200000,
+        "tradeDate": 1419955200000,
+        "open": 15.18000,
+        "high": 16.91000,
+        "low": 11.17000,
+        "close": 12.06000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1414771200000,
+        "tradeDate": 1417104000000,
+        "open": 14.39000,
+        "high": 18.40000,
+        "low": 13.82000,
+        "close": 14.31000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1412092800000,
+        "tradeDate": 1414684800000,
+        "open": 13.43000,
+        "high": 17.21000,
+        "low": 13.24000,
+        "close": 14.53000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1406822400000,
+        "tradeDate": 1408377600000,
+        "open": 12.15000,
+        "high": 13.32000,
+        "low": 11.99000,
+        "close": 12.45000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1404144000000,
+        "tradeDate": 1406563200000,
+        "open": 9.53000,
+        "high": 14.53000,
+        "low": 8.50000,
+        "close": 10.49000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1401552000000,
+        "tradeDate": 1404057600000,
+        "open": 9.90000,
+        "high": 9.90000,
+        "low": 7.79000,
+        "close": 8.57000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1398873600000,
+        "tradeDate": 1401379200000,
+        "open": 9.98000,
+        "high": 10.04000,
+        "low": 8.86000,
+        "close": 9.56000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1396281600000,
+        "tradeDate": 1397059200000,
+        "open": 11.34000,
+        "high": 11.49000,
+        "low": 10.22000,
+        "close": 10.46000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1393603200000,
+        "tradeDate": 1396195200000,
+        "open": 11.97000,
+        "high": 13.99000,
+        "low": 10.68000,
+        "close": 11.31000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1391184000000,
+        "tradeDate": 1393430400000,
+        "open": 17.25000,
+        "high": 17.63000,
+        "low": 11.04000,
+        "close": 11.31000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1388505600000,
+        "tradeDate": 1390492800000,
+        "open": 9.70000,
+        "high": 12.02000,
+        "low": 9.32000,
+        "close": 10.37000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1385827200000,
+        "tradeDate": 1388332800000,
+        "open": 12.87000,
+        "high": 12.87000,
+        "low": 9.74000,
+        "close": 9.79000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1383235200000,
+        "tradeDate": 1385654400000,
+        "open": 12.27000,
+        "high": 13.91000,
+        "low": 11.80000,
+        "close": 11.81000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1380556800000,
+        "tradeDate": 1383148800000,
+        "open": 13.82000,
+        "high": 15.39000,
+        "low": 11.24000,
+        "close": 12.30000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1377964800000,
+        "tradeDate": 1380470400000,
+        "open": 14.94000,
+        "high": 16.46000,
+        "low": 13.51000,
+        "close": 13.98000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1375286400000,
+        "tradeDate": 1377792000000,
+        "open": 16.46000,
+        "high": 17.59000,
+        "low": 14.56000,
+        "close": 14.57000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1372608000000,
+        "tradeDate": 1375200000000,
+        "open": 15.27000,
+        "high": 16.85000,
+        "low": 13.85000,
+        "close": 16.34000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1370016000000,
+        "tradeDate": 1372348800000,
+        "open": 15.35000,
+        "high": 18.64000,
+        "low": 13.81000,
+        "close": 14.85000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1367337600000,
+        "tradeDate": 1369929600000,
+        "open": 12.71000,
+        "high": 14.65000,
+        "low": 8.44000,
+        "close": 13.68000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1364745600000,
+        "tradeDate": 1367251200000,
+        "open": 12.09000,
+        "high": 13.92000,
+        "low": 11.23000,
+        "close": 12.51000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1362067200000,
+        "tradeDate": 1364486400000,
+        "open": 14.78000,
+        "high": 15.23000,
+        "low": 11.35000,
+        "close": 11.51000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1359648000000,
+        "tradeDate": 1361894400000,
+        "open": 12.61000,
+        "high": 16.36000,
+        "low": 12.61000,
+        "close": 14.70000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1356969600000,
+        "tradeDate": 1359561600000,
+        "open": 17.17000,
+        "high": 17.17000,
+        "low": 12.12000,
+        "close": 12.60000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1354291200000,
+        "tradeDate": 1356624000000,
+        "open": 15.22000,
+        "high": 17.70000,
+        "low": 13.89000,
+        "close": 16.66000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1351699200000,
+        "tradeDate": 1354204800000,
+        "open": 17.57000,
+        "high": 20.57000,
+        "low": 14.90000,
+        "close": 14.99000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1349020800000,
+        "tradeDate": 1351180800000,
+        "open": 16.92000,
+        "high": 17.69000,
+        "low": 14.89000,
+        "close": 17.69000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1346428800000,
+        "tradeDate": 1348761600000,
+        "open": 19.37000,
+        "high": 19.62000,
+        "low": 15.38000,
+        "close": 15.85000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1343750400000,
+        "tradeDate": 1346342400000,
+        "open": 19.38000,
+        "high": 19.38000,
+        "low": 16.44000,
+        "close": 18.35000,
+        "volume": 0,
+        "millionAmount": 0.00
+    },
+    {
+        "time": 1341072000000,
+        "tradeDate": 1343664000000,
+        "open": 20.16000,
+        "high": 20.53000,
+        "low": 16.09000,
+        "close": 18.52000,
+        "volume": 0,
+        "millionAmount": 0.00
+    }
+]

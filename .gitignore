@@ -252,3 +252,6 @@ logs/
 
 #json不上傳
 *.json
+
+# VIX 原始資料目錄（不上傳）
+VIX_dictionary_put_in_database/TFE_rawdata/

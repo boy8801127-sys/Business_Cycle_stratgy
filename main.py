@@ -9,6 +9,10 @@ import json
 import time
 from datetime import datetime
 import pandas as pd
+import requests
+from pathlib import Path
+import pandas_market_calendars as pmc
+import sqlite3
 
 # 設定編碼（Windows）
 if os.name == 'nt':
@@ -29,6 +33,19 @@ from data_collection.indicator_data_collector import IndicatorDataCollector
 from data_collection.stock_data_collector import StockDataCollector
 from data_collection.otc_data_collector import OTCDataCollector
 from data_collection.margin_data_collector import MarginDataCollector
+
+# 導入 VIX 解析函數
+try:
+    from VIX_dictionary_put_in_database.batch_parse_tvix_folder import parse_one_file, read_text_with_fallback, time_raw_to_hms
+except ImportError as e:
+    print(f"[Warning] 無法導入 VIX 解析函數: {e}")
+    # 定義備用函數（如果導入失敗）
+    def parse_one_file(src):
+        raise NotImplementedError("VIX 解析函數未正確導入")
+    def read_text_with_fallback(p):
+        raise NotImplementedError("VIX 解析函數未正確導入")
+    def time_raw_to_hms(s):
+        raise NotImplementedError("VIX 解析函數未正確導入")
 
 # 策略名稱縮寫對照表（用於 Excel 工作表命名）
 STRATEGY_NAME_MAP = {
@@ -381,6 +398,7 @@ def print_menu():
     print("11. 輸出 Orange 分析數據（股價 + 指標數據）")
     print("12. 執行回測（新系統，基於 Orange 資料）")
     print("13. 收集融資維持率數據（2015-2025年）")
+    print("14. 下載並重新計算VIX月K線（自動偵測當月缺失日期）")
     print("0. 離開")
     print("="*60)
 
@@ -2032,6 +2050,342 @@ def collect_margin_data():
         traceback.print_exc()
 
 
+def download_vix_data(date_str: str, save_path: Path, retry_times=3, retry_delay=5):
+    """
+    下載TAIFEX VIX資料
+    
+    參數:
+    - date_str: 日期字串（YYYYMMDD）
+    - save_path: 儲存路徑
+    - retry_times: 重試次數
+    - retry_delay: 重試延遲（秒）
+    
+    回傳:
+    - Path: 下載檔案的 Path，失敗回傳 None
+    """
+    url = f"https://www.taifex.com.tw/cht/7/getVixData?filesname={date_str}"
+    headers = {"User-Agent": "Mozilla/5.0 (compatible; TWStockBot/1.0)"}
+    
+    for attempt in range(1, retry_times + 1):
+        try:
+            response = requests.get(url, headers=headers, timeout=15)
+            response.raise_for_status()
+            
+            # 確保目錄存在
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # 直接儲存原始 bytes，讓 read_text_with_fallback() 處理編碼
+            save_path.write_bytes(response.content)
+            
+            return save_path
+            
+        except Exception as e:
+            if attempt < retry_times:
+                print(f"[Warning] {date_str} 下載失敗（第 {attempt}/{retry_times} 次）: {e}")
+                print(f"[Info] {retry_delay} 秒後重試...")
+                time.sleep(retry_delay)
+                continue
+            else:
+                print(f"[Error] {date_str} 下載失敗（已重試 {retry_times} 次）: {e}")
+                return None
+    
+    return None
+
+
+def parse_and_save_to_tfe_vix(txt_file: Path, db_manager: DatabaseManager) -> int:
+    """
+    解析txt檔案並存入TFE_VIX_data
+    
+    參數:
+    - txt_file: txt檔案路徑
+    - db_manager: DatabaseManager 實例
+    
+    回傳:
+    - int: 插入的筆數
+    """
+    try:
+        # 重用現有解析函數
+        rows = parse_one_file(txt_file)
+        
+        if not rows:
+            return 0
+        
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # 確保資料表存在
+        cursor.execute("CREATE TABLE IF NOT EXISTS TFE_VIX_data (date TEXT, time TEXT, vix REAL)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_TFE_VIX_data_date ON TFE_VIX_data (date)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_TFE_VIX_data_time ON TFE_VIX_data (time)")
+        
+        inserted_count = 0
+        
+        for item in rows:
+            date = item.get('date')
+            time_val = item.get('time')
+            vix = item.get('vix')
+            
+            if not date or not time_val:
+                continue
+            
+            try:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO TFE_VIX_data (date, time, vix) VALUES (?, ?, ?)",
+                    (date, time_val, vix)
+                )
+                if cursor.rowcount > 0:
+                    inserted_count += 1
+            except sqlite3.Error as e:
+                print(f"[Warning] 插入失敗: {txt_file.name} date={date}, time={time_val}, error={e}")
+        
+        conn.commit()
+        conn.close()
+        
+        return inserted_count
+        
+    except Exception as e:
+        print(f"[Error] 解析檔案失敗: {txt_file.name}, error={e}")
+        return 0
+
+
+def recalculate_monthly_kline(year_month: str, db_manager: DatabaseManager):
+    """
+    重新計算指定月份的月K線
+    
+    參數:
+    - year_month: 年月字串（YYYYMM）
+    - db_manager: DatabaseManager 實例
+    
+    回傳:
+    - list[dict]: 該月的K線資料列表，失敗回傳 None
+    """
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # 查詢該月份所有資料
+        cursor.execute(
+            "SELECT * FROM TFE_VIX_data WHERE date LIKE ? ORDER BY date, time",
+            (f"{year_month}%",)
+        )
+        data = cursor.fetchall()
+        conn.close()
+        
+        if not data:
+            return None
+        
+        # 重用 calculate_tvix_to_mouth_k_line.py 的計算邏輯
+        # 按年月分組資料
+        mouth_k_line = []
+        if data:
+            first_date = data[0][0]
+            current_year_month = first_date[:6] if len(first_date) >= 6 else None
+            
+            mouth_k_line.append([])
+            mouth_k_line[0].append(data[0])
+            
+            for row in data[1:]:
+                row_date = row[0]
+                row_year_month = row_date[:6] if len(row_date) >= 6 else None
+                
+                if row_year_month != current_year_month:
+                    current_year_month = row_year_month
+                    mouth_k_line.append([])
+                
+                mouth_k_line[len(mouth_k_line)-1].append(row)
+        
+        # 計算每個月的K線
+        monthly_k_lines = []
+        
+        for month_data in mouth_k_line:
+            if not month_data:
+                continue
+            
+            first_row = month_data[0]
+            first_date = first_row[0]
+            time_val = first_date[:6] + "01"  # 該月第一天
+            open_price = first_row[2]
+            
+            last_row = month_data[-1]
+            tradeDate = last_row[0]
+            close_price = last_row[2]
+            
+            vix_values = [row[2] for row in month_data if row[2] is not None]
+            
+            if not vix_values:
+                continue
+            
+            high_price = max(vix_values)
+            low_price = min(vix_values)
+            
+            monthly_k_lines.append({
+                'time': time_val,
+                'tradeDate': tradeDate,
+                'open': open_price,
+                'high': high_price,
+                'low': low_price,
+                'close': close_price
+            })
+        
+        return monthly_k_lines
+        
+    except Exception as e:
+        print(f"[Error] 計算月K線失敗: {year_month}, error={e}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+def update_vix_data_monthly_kline(year_month: str, kline_data: list[dict], db_manager: DatabaseManager) -> bool:
+    """
+    更新VIX_data資料表中的月K線資料
+    
+    參數:
+    - year_month: 年月字串（YYYYMM）
+    - kline_data: K線資料列表
+    - db_manager: DatabaseManager 實例
+    
+    回傳:
+    - bool: 成功與否
+    """
+    try:
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # 檢查資料表是否存在
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='VIX_data'")
+        if not cursor.fetchone():
+            print("[Warning] VIX_data 資料表不存在")
+            conn.close()
+            return False
+        
+        # 先刪除該月舊資料
+        cursor.execute("DELETE FROM VIX_data WHERE tradeDate LIKE ?", (f"{year_month}%",))
+        deleted_count = cursor.rowcount
+        
+        # 插入新資料
+        inserted_count = 0
+        for k_line in kline_data:
+            cursor.execute(
+                "INSERT INTO VIX_data (time, tradeDate, open, high, low, close) VALUES (?, ?, ?, ?, ?, ?)",
+                (k_line['time'], k_line['tradeDate'], k_line['open'], k_line['high'], k_line['low'], k_line['close'])
+            )
+            inserted_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        print(f"[Info] 更新完成：刪除 {deleted_count} 筆，新增 {inserted_count} 筆")
+        return True
+        
+    except Exception as e:
+        print(f"[Error] 更新VIX_data失敗: {year_month}, error={e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def download_and_recalculate_vix_monthly():
+    """選項 14：下載並重新計算VIX月K線"""
+    print("\n[選項 14] 下載並重新計算VIX月K線")
+    print("-" * 60)
+    
+    db_manager = DatabaseManager()
+    
+    try:
+        # 步驟1：取得當月交易日列表
+        now = datetime.now()
+        year_month = now.strftime('%Y%m')
+        year = now.year
+        month = now.month
+        
+        # 計算當月第一天和最後一天
+        from calendar import monthrange
+        first_day = datetime(year, month, 1)
+        last_day_num = monthrange(year, month)[1]
+        last_day = datetime(year, month, last_day_num)
+        
+        print(f"[Info] 當月：{year_month} ({first_day.date()} 至 {last_day.date()})")
+        
+        # 取得台灣交易日曆
+        cal = pmc.get_calendar('XTAI')
+        trading_days = cal.valid_days(start_date=pd.Timestamp(first_day), end_date=pd.Timestamp(last_day))
+        trading_days_str = [day.strftime('%Y%m%d') for day in trading_days]
+        
+        print(f"[Info] 當月共有 {len(trading_days_str)} 個交易日")
+        
+        # 步驟2：比對缺失日期
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT DISTINCT date FROM TFE_VIX_data WHERE date LIKE ?", (f"{year_month}%",))
+        existing_dates = set([row[0] for row in cursor.fetchall()])
+        conn.close()
+        
+        print(f"[Info] 資料庫中已有 {len(existing_dates)} 個交易日的資料")
+        
+        # 找出缺失的日期
+        missing_dates = [d for d in trading_days_str if d not in existing_dates]
+        
+        if not missing_dates:
+            print(f"[Info] 當月所有交易日資料已齊全，無需下載")
+        else:
+            print(f"[Info] 需要下載 {len(missing_dates)} 個交易日的資料")
+            
+            # 步驟3：批次下載缺失日期
+            raw_data_folder = Path(__file__).parent / "VIX_dictionary_put_in_database" / "TFE_rawdata" / "raw_data"
+            raw_data_folder.mkdir(parents=True, exist_ok=True)
+            
+            downloaded_files = []
+            for date_str in missing_dates:
+                save_path = raw_data_folder / f"{date_str}_new.txt"
+                print(f"[Info] 下載 {date_str}...", end=" ")
+                
+                downloaded_file = download_vix_data(date_str, save_path, retry_times=3, retry_delay=5)
+                if downloaded_file:
+                    downloaded_files.append(downloaded_file)
+                    print("成功")
+                else:
+                    print("失敗")
+                
+                # 禮貌延遲
+                time.sleep(2)
+            
+            print(f"\n[Info] 下載完成：成功 {len(downloaded_files)} 個，失敗 {len(missing_dates) - len(downloaded_files)} 個")
+            
+            # 步驟4：解析並存入 TFE_VIX_data
+            if downloaded_files:
+                total_inserted = 0
+                for txt_file in downloaded_files:
+                    inserted = parse_and_save_to_tfe_vix(txt_file, db_manager)
+                    total_inserted += inserted
+                    print(f"[Info] {txt_file.name}: 新增 {inserted} 筆")
+                
+                print(f"[Info] 總共新增 {total_inserted} 筆資料到 TFE_VIX_data")
+        
+        # 步驟5：重新計算當月月K線
+        print(f"\n[Info] 開始重新計算 {year_month} 月的月K線...")
+        kline_data = recalculate_monthly_kline(year_month, db_manager)
+        
+        if kline_data:
+            print(f"[Info] 計算完成，共 {len(kline_data)} 筆月K線資料")
+            
+            # 更新 VIX_data
+            success = update_vix_data_monthly_kline(year_month, kline_data, db_manager)
+            if success:
+                print(f"[Info] {year_month} 月的月K線已更新完成")
+            else:
+                print(f"[Error] {year_month} 月的月K線更新失敗")
+        else:
+            print(f"[Warning] {year_month} 月沒有可計算的K線資料")
+        
+        print("\n[Info] 處理完成")
+        
+    except Exception as e:
+        print(f"[Error] 處理失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def validate_data():
     """選項 6：驗證股價資料"""
     print("\n[選項 6] 驗證股價資料")
@@ -2122,7 +2476,7 @@ def main():
     while True:
         try:
             print_menu()
-            choice = input("\n請選擇功能（0-13）: ").strip()
+            choice = input("\n請選擇功能（0-14）: ").strip()
             
             # 過濾掉可能的 PowerShell 自動執行腳本或路徑
             # 如果輸入看起來像腳本路徑或命令，視為無效
@@ -2143,7 +2497,7 @@ def main():
             
             # 只接受數字
             if not choice.isdigit():
-                print("[Error] 無效的選項，請輸入數字（0-12）")
+                print("[Error] 無效的選項，請輸入數字（0-14）")
                 continue
             
             if choice == '0':
@@ -2175,8 +2529,10 @@ def main():
                 run_backtest_new()
             elif choice == '13':
                 collect_margin_data()
+            elif choice == '14':
+                download_and_recalculate_vix_monthly()
             else:
-                print("[Error] 無效的選項，請輸入 0-13 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-14 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):
