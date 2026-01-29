@@ -162,6 +162,59 @@ def get_indicator_for_date(target_date, indicator_df):
         return pd.Series(dtype=float)
 
 
+def load_monthly_technical_indicators(
+    db_manager: DatabaseManager,
+    tickers: Sequence[str],
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
+    """
+    從資料庫讀取月線技術指標資料
+    
+    參數:
+    - db_manager: DatabaseManager 實例
+    - tickers: 股票代號列表
+    - start_date: 起始日期（YYYYMMDD）
+    - end_date: 結束日期（YYYYMMDD）
+    
+    返回:
+    - DataFrame: 包含月線技術指標的資料
+    """
+    print("\n正在讀取月線技術指標數據...")
+    
+    if not tickers:
+        print("  [Warning] 沒有指定股票代號")
+        return pd.DataFrame()
+    
+    # 使用參數化查詢避免 SQL 注入
+    placeholders = ','.join(['?'] * len(tickers))
+    query = f"SELECT * FROM stock_technical_indicators_monthly WHERE ticker IN ({placeholders})"
+    params = [str(t) for t in tickers]
+    
+    if start_date:
+        query += " AND date >= ?"
+        params.append(str(start_date))
+    if end_date:
+        query += " AND date <= ?"
+        params.append(str(end_date))
+    
+    query += " ORDER BY date, ticker"
+    
+    df = db_manager.execute_query_dataframe(query, params)
+    
+    if df.empty:
+        print("  [Warning] 沒有找到月線技術指標數據")
+        return pd.DataFrame()
+    
+    # 轉換日期格式
+    df['date'] = pd.to_datetime(df['date'], format='%Y%m%d', errors='coerce')
+    df = df[df['date'].notna()]
+    df = df.sort_values(['date', 'ticker']).reset_index(drop=True)
+    
+    print(f"  共讀取 {len(df)} 筆月線技術指標數據（從 {df['date'].min()} 至 {df['date'].max()}）")
+    return df
+
+
 def _parse_ymd(date_str: Optional[str], default: Optional[pd.Timestamp] = None) -> pd.Timestamp:
     """
     解析日期字串為 Timestamp。
@@ -487,14 +540,34 @@ def export_orange_data_monthly(
     else:
         print(f"  共讀取 {len(margin_df)} 筆融資維持率數據（從 {margin_df['date'].min()} 至 {margin_df['date'].max()}）")
 
+    # 讀取月線技術指標數據（當天對當天）
+    tech_monthly_df = load_monthly_technical_indicators(
+        db_manager,
+        tickers=tickers,
+        start_date=_to_yyyymmdd(start_ts),
+        end_date=_to_yyyymmdd(end_ts)
+    )
+
     print("\n正在合併月線與指標（指標對齊：n-2個月）...")
     out_rows = []
     for _, row in monthly_df.iterrows():
         month_end: pd.Timestamp = row['date']
         indicator_row = get_indicator_for_date(month_end, indicator_df)
         
-        # 取得融資維持率數據（使用當月最後一個交易日）
+        # 取得融資維持率數據（使用當月最後一個交易日，當天對當天）
         margin_row = get_margin_for_date(month_end, margin_df) if not margin_df.empty else pd.Series(dtype=float)
+        
+        # 取得月線技術指標數據（當天對當天）
+        tech_row = pd.Series(dtype=float)
+        if not tech_monthly_df.empty:
+            month_end_str = month_end.strftime('%Y-%m-%d')
+            tech_monthly_df['date_str'] = tech_monthly_df['date'].dt.strftime('%Y-%m-%d')
+            tech_match = tech_monthly_df[
+                (tech_monthly_df['date_str'] == month_end_str) & 
+                (tech_monthly_df['ticker'] == row['ticker'])
+            ]
+            if not tech_match.empty:
+                tech_row = tech_match.iloc[0]
 
         out_row = {
             'date': month_end.strftime('%Y-%m-%d'),  # 月末標籤
@@ -506,10 +579,26 @@ def export_orange_data_monthly(
             'volume': row.get('volume'),
             'turnover': row.get('turnover')
         }
+        
+        # 添加技術指標欄位（當天對當天）
+        tech_columns = [
+            'ma3', 'ma6', 'ma12',
+            'price_vs_ma3', 'price_vs_ma6',
+            'volatility_6', 'volatility_pct_6',
+            'return_1m', 'return_3m', 'return_12m',
+            'rsi', 'volume_ma3', 'volume_ratio'
+        ]
+        for col in tech_columns:
+            if not tech_row.empty and col in tech_row:
+                out_row[col] = tech_row.get(col, None)
+            else:
+                out_row[col] = None
+        
+        # 添加總經指標欄位（n-2個月時序移動）
         for col in indicator_cols:
             out_row[col] = indicator_row.get(col, None)
         
-        # 添加融資融券衍生指標欄位
+        # 添加融資融券衍生指標欄位（當天對當天）
         margin_derived_cols = [
             'short_margin_ratio',
             'margin_balance_change_rate',
@@ -552,11 +641,19 @@ def export_orange_data_monthly(
             out_df[f'{col}_change'] = out_df.groupby('ticker')[col].diff()
     
     base_cols = ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'turnover']
+    tech_columns = [
+        'ma3', 'ma6', 'ma12',
+        'price_vs_ma3', 'price_vs_ma6',
+        'volatility_6', 'volatility_pct_6',
+        'return_1m', 'return_3m', 'return_12m',
+        'rsi', 'volume_ma3', 'volume_ratio'
+    ]
+    tech_cols = [col for col in tech_columns if col in out_df.columns]
     margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
                   [f'{col}_lag2' for col in margin_derived_cols] + \
                   [f'{col}_change' for col in margin_derived_cols]
     margin_cols = [col for col in margin_cols if col in out_df.columns]
-    out_df = out_df[base_cols + indicator_cols + margin_cols]
+    out_df = out_df[base_cols + tech_cols + indicator_cols + margin_cols]
 
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     print(f"\n正在輸出 CSV 文件：{output_path}")

@@ -33,6 +33,7 @@ from data_collection.indicator_data_collector import IndicatorDataCollector
 from data_collection.stock_data_collector import StockDataCollector
 from data_collection.otc_data_collector import OTCDataCollector
 from data_collection.margin_data_collector import MarginDataCollector
+from data_collection.technical_indicator_calculator import TechnicalIndicatorCalculator
 
 # 導入 VIX 解析函數
 try:
@@ -400,6 +401,7 @@ def print_menu():
     print("13. 收集融資融券數據（2015-2025年）")
     print("14. 下載並重新計算VIX月K線（自動偵測當月缺失日期）")
     print("15. 建立中文別名 VIEW（為所有資料表建立中文欄位名稱視圖）")
+    print("16. 計算技術指標（日線/月線）")
     print("0. 離開")
     print("="*60)
 
@@ -2491,7 +2493,7 @@ def main():
     while True:
         try:
             print_menu()
-            choice = input("\n請選擇功能（0-14）: ").strip()
+            choice = input("\n請選擇功能（0-16）: ").strip()
             
             # 過濾掉可能的 PowerShell 自動執行腳本或路徑
             # 如果輸入看起來像腳本路徑或命令，視為無效
@@ -2548,8 +2550,10 @@ def main():
                 download_and_recalculate_vix_monthly()
             elif choice == '15':
                 create_chinese_views()
+            elif choice == '16':
+                calculate_technical_indicators()
             else:
-                print("[Error] 無效的選項，請輸入 0-15 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-16 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):
@@ -2737,6 +2741,93 @@ def fill_zero_price_data():
     
     if not executed_any:
         print("\n[Info] 未執行任何填補作業")
+
+
+def calculate_technical_indicators():
+    """選項 16：計算技術指標（日線/月線）"""
+    print("\n[選項 16] 計算技術指標（日線/月線）")
+    print("-" * 60)
+    
+    try:
+        # 輸入股票代號
+        ticker_input = input("請輸入股票代號（多個請用逗號分隔，預設：006208,2330）: ").strip()
+        if not ticker_input:
+            tickers = ['006208', '2330']
+        else:
+            tickers = [t.strip() for t in ticker_input.split(',') if t.strip()]
+        
+        if not tickers:
+            print("[Error] 請輸入有效的股票代號")
+            return
+        
+        # 選擇計算類型
+        print("\n請選擇計算類型：")
+        print("1. 只計算日線")
+        print("2. 只計算月線")
+        print("3. 同時計算日線和月線（預設）")
+        calc_type = input("請選擇（1-3，預設：3）: ").strip()
+        
+        calculate_daily = False
+        calculate_monthly = False
+        
+        if calc_type == '1':
+            calculate_daily = True
+        elif calc_type == '2':
+            calculate_monthly = True
+        else:
+            # 預設：同時計算
+            calculate_daily = True
+            calculate_monthly = True
+        
+        # 輸入日期範圍（可選）
+        start_date = input("起始日期（YYYYMMDD，直接按 Enter 表示全部）: ").strip()
+        end_date = input("結束日期（YYYYMMDD，直接按 Enter 表示全部）: ").strip()
+        
+        start_date = start_date if start_date else None
+        end_date = end_date if end_date else None
+        
+        # 選擇更新模式
+        print("\n更新模式：")
+        print("1. 覆蓋現有資料（replace）")
+        print("2. 追加資料（append）")
+        update_mode = input("請選擇（1-2，預設：1）: ").strip()
+        if_exists = 'append' if update_mode == '2' else 'replace'
+        
+        # 顯示設定資訊
+        print("\n" + "=" * 60)
+        print("計算設定：")
+        print(f"  股票代號: {', '.join(tickers)}")
+        print(f"  計算類型: {'日線' if calculate_daily else ''}{' + ' if calculate_daily and calculate_monthly else ''}{'月線' if calculate_monthly else ''}")
+        if start_date or end_date:
+            print(f"  日期範圍: {start_date or '全部'} ~ {end_date or '全部'}")
+        else:
+            print(f"  日期範圍: 全部")
+        print(f"  更新模式: {if_exists}")
+        print("=" * 60)
+        
+        # 確認執行
+        confirm = input("\n確認執行？（Y/n）: ").strip().lower()
+        if confirm and confirm != 'y':
+            print("[Info] 已取消")
+            return
+        
+        # 執行計算
+        calculator = TechnicalIndicatorCalculator()
+        calculator.calculate_and_save(
+            tickers=tickers,
+            calculate_daily=calculate_daily,
+            calculate_monthly=calculate_monthly,
+            start_date=start_date,
+            end_date=end_date,
+            if_exists=if_exists
+        )
+        
+        print("\n[Info] 技術指標計算完成！")
+        
+    except Exception as e:
+        print(f"\n[Error] 計算技術指標時發生錯誤: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def delete_warrants_from_otc():

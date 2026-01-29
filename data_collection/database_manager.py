@@ -43,6 +43,9 @@ class DatabaseManager:
         self.ensure_table_column('leading_indicators_data', 'm1b_yoy_momentum', 'REAL')
         self.ensure_table_column('leading_indicators_data', 'm1b_mom', 'REAL')
         self.ensure_table_column('leading_indicators_data', 'm1b_vs_3m_avg', 'REAL')
+        # 初始化技術指標表
+        self.init_stock_technical_indicators_table()
+        self.init_stock_technical_indicators_monthly_table()
     
     def get_connection(self):
         """取得資料庫連接"""
@@ -898,6 +901,80 @@ class DatabaseManager:
         self.init_business_cycle_signal_components_table()
         print("[Info] 所有景氣指標資料表初始化完成")
     
+    def init_stock_technical_indicators_table(self):
+        """
+        初始化日線技術指標資料表（stock_technical_indicators）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS stock_technical_indicators (
+                    date TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    ma5 REAL,
+                    ma20 REAL,
+                    ma60 REAL,
+                    price_vs_ma5 REAL,
+                    price_vs_ma20 REAL,
+                    volatility_20 REAL,
+                    volatility_pct_20 REAL,
+                    return_1d REAL,
+                    return_5d REAL,
+                    return_20d REAL,
+                    rsi REAL,
+                    volume_ma5 REAL,
+                    volume_ratio REAL,
+                    PRIMARY KEY (date, ticker)
+                )
+            ''')
+            conn.commit()
+            print("[Info] 日線技術指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化日線技術指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
+    def init_stock_technical_indicators_monthly_table(self):
+        """
+        初始化月線技術指標資料表（stock_technical_indicators_monthly）
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS stock_technical_indicators_monthly (
+                    date TEXT NOT NULL,
+                    ticker TEXT NOT NULL,
+                    ma3 REAL,
+                    ma6 REAL,
+                    ma12 REAL,
+                    price_vs_ma3 REAL,
+                    price_vs_ma6 REAL,
+                    volatility_6 REAL,
+                    volatility_pct_6 REAL,
+                    return_1m REAL,
+                    return_3m REAL,
+                    return_12m REAL,
+                    rsi REAL,
+                    volume_ma3 REAL,
+                    volume_ratio REAL,
+                    PRIMARY KEY (date, ticker)
+                )
+            ''')
+            conn.commit()
+            print("[Info] 月線技術指標資料表初始化完成")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化月線技術指標資料表失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
     def create_chinese_views(self):
         """
         為所有資料表建立中文別名 VIEW
@@ -1269,6 +1346,60 @@ class DatabaseManager:
             ''')
             print("[Info] 已建立: vw_VIX_data")
             
+            # 14. vw_stock_technical_indicators - 日線技術指標
+            cursor.execute("DROP VIEW IF EXISTS vw_stock_technical_indicators")
+            try:
+                cursor.execute('''
+                    CREATE VIEW vw_stock_technical_indicators AS
+                    SELECT 
+                        date AS '日期',
+                        ticker AS '股票代號',
+                        ma5 AS '5日移動平均線',
+                        ma20 AS '20日移動平均線',
+                        ma60 AS '60日移動平均線',
+                        price_vs_ma5 AS '股價相對5日均線位置(%)',
+                        price_vs_ma20 AS '股價相對20日均線位置(%)',
+                        volatility_20 AS '20日波動率',
+                        volatility_pct_20 AS '20日波動率(%)',
+                        return_1d AS '1日報酬率(%)',
+                        return_5d AS '5日報酬率(%)',
+                        return_20d AS '20日報酬率(%)',
+                        rsi AS 'RSI指標(14日)',
+                        volume_ma5 AS '5日平均成交量',
+                        volume_ratio AS '成交量比率'
+                    FROM stock_technical_indicators
+                ''')
+                print("[Info] 已建立: vw_stock_technical_indicators")
+            except Exception as e:
+                print(f"[Warning] 建立 vw_stock_technical_indicators 失敗: {e}")
+            
+            # 15. vw_stock_technical_indicators_monthly - 月線技術指標
+            cursor.execute("DROP VIEW IF EXISTS vw_stock_technical_indicators_monthly")
+            try:
+                cursor.execute('''
+                    CREATE VIEW vw_stock_technical_indicators_monthly AS
+                    SELECT 
+                        date AS '日期（月末）',
+                        ticker AS '股票代號',
+                        ma3 AS '3月移動平均線',
+                        ma6 AS '6月移動平均線',
+                        ma12 AS '12月移動平均線',
+                        price_vs_ma3 AS '股價相對3月均線位置(%)',
+                        price_vs_ma6 AS '股價相對6月均線位置(%)',
+                        volatility_6 AS '6月波動率',
+                        volatility_pct_6 AS '6月波動率(%)',
+                        return_1m AS '1月報酬率(%)',
+                        return_3m AS '3月報酬率(%)',
+                        return_12m AS '12月報酬率(%)',
+                        rsi AS 'RSI指標(6月)',
+                        volume_ma3 AS '3月平均成交量',
+                        volume_ratio AS '成交量比率'
+                    FROM stock_technical_indicators_monthly
+                ''')
+                print("[Info] 已建立: vw_stock_technical_indicators_monthly")
+            except Exception as e:
+                print(f"[Warning] 建立 vw_stock_technical_indicators_monthly 失敗: {e}")
+            
             conn.commit()
             
             # 檢查所有原始資料表的資料筆數
@@ -1286,7 +1417,7 @@ class DatabaseManager:
                         print(f"  ✗ {table_name}: 查詢失敗 ({e})")
             
             print("\n[Info] 所有中文別名 VIEW 建立完成！")
-            print("[Info] 共建立 13 個 VIEW")
+            print("[Info] 共建立 15 個 VIEW")
             print("\n[Info] 使用範例：")
             print("  SELECT 日期, 股票代號, 收盤價 FROM vw_tw_stock_price_data WHERE 股票代號 = '006208';")
             
