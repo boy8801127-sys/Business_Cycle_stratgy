@@ -10,24 +10,6 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from typing import Iterable, Optional, Sequence, List
-import json
-
-# #region agent log
-def _debug_log(location, message, data, hypothesis_id):
-    try:
-        with open('d:\\Business_Cycle_stratgy\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
-            log_entry = {
-                'location': location,
-                'message': message,
-                'data': data,
-                'timestamp': datetime.now().isoformat(),
-                'sessionId': 'debug-session',
-                'hypothesisId': hypothesis_id
-            }
-            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
-    except:
-        pass
-# #endregion
 
 # 添加專案根目錄到路徑
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -481,14 +463,6 @@ def export_orange_data_daily(
     indicator_start_ts = start_ts.replace(day=1) - pd.DateOffset(months=3)
     indicator_start_yyyymmdd = _to_yyyymmdd(indicator_start_ts)
     indicator_end_yyyymmdd = _to_yyyymmdd(end_ts)
-    # #region agent log
-    _debug_log(
-        "export_orange_data.py:indicator_load_daily",
-        "Loading indicator_df with extended start",
-        {"start_date": start_date, "end_date": end_date, "indicator_start": indicator_start_yyyymmdd, "indicator_end": indicator_end_yyyymmdd},
-        "B",
-    )
-    # #endregion
     indicator_df = load_indicator_data(db_manager, start_date=indicator_start_yyyymmdd, end_date=indicator_end_yyyymmdd)
     if indicator_df.empty:
         print("[Error] 無法讀取指標數據")
@@ -506,7 +480,12 @@ def export_orange_data_daily(
     # 合併數據：為每個股價日期添加對應的指標數據（n-2個月）
     print("\n正在合併數據（指標對齊：n-2個月）...")
     result_rows = []
-    indicator_cols = [col for col in indicator_df.columns if col != 'indicator_date']
+    # indicator_df 可能包含用於回填的 cycle_* 欄位（例如 cycle_business_cycle_signal / cycle_business_cycle_score）
+    # 這些欄位不需要輸出到 Orange CSV，僅用於內部回填驗證
+    indicator_cols = [
+        col for col in indicator_df.columns
+        if col != 'indicator_date' and not str(col).startswith('cycle_')
+    ]
 
     for idx, row in stock_data.iterrows():
         if idx % 1000 == 0:
@@ -737,19 +716,16 @@ def export_orange_data_monthly(
     indicator_start_ts = start_ts.replace(day=1) - pd.DateOffset(months=3)
     indicator_start_yyyymmdd = _to_yyyymmdd(indicator_start_ts)
     indicator_end_yyyymmdd = _to_yyyymmdd(end_ts)
-    # #region agent log
-    _debug_log(
-        "export_orange_data.py:indicator_load_monthly",
-        "Loading indicator_df with extended start",
-        {"start_date": start_date, "end_date": end_date, "indicator_start": indicator_start_yyyymmdd, "indicator_end": indicator_end_yyyymmdd},
-        "B",
-    )
-    # #endregion
     indicator_df = load_indicator_data(db_manager, start_date=indicator_start_yyyymmdd, end_date=indicator_end_yyyymmdd)
     if indicator_df.empty:
         print("[Error] 無法讀取指標數據")
         return None
-    indicator_cols = [col for col in indicator_df.columns if col != 'indicator_date']
+    # indicator_df 可能包含用於回填的 cycle_* 欄位（例如 cycle_business_cycle_signal / cycle_business_cycle_score）
+    # 這些欄位不需要輸出到 Orange CSV，僅用於內部回填驗證
+    indicator_cols = [
+        col for col in indicator_df.columns
+        if col != 'indicator_date' and not str(col).startswith('cycle_')
+    ]
     print(f"  共讀取 {len(indicator_df)} 筆指標數據（從 {indicator_df['indicator_date'].min()} 至 {indicator_df['indicator_date'].max()}）")
 
     # 讀取融資維持率數據
@@ -866,44 +842,12 @@ def export_orange_data_monthly(
                       [f'{col}_lag2' for col in margin_derived_cols if col in out_df.columns] + \
                       [f'{col}_change' for col in margin_derived_cols if col in out_df.columns]
     
-    # #region agent log
-    _debug_log('export_orange_data.py:820', 'Before forward fill', {
-        'lag_change_cols': lag_change_cols,
-        'first_row_nan_count': {col: out_df[col].iloc[0:3].isna().sum() if col in out_df.columns else 0 for col in lag_change_cols[:3]},
-        'total_rows': len(out_df),
-        'tickers': out_df['ticker'].unique().tolist() if 'ticker' in out_df.columns else []
-    }, 'A')
-    # #endregion
-    
     for col in lag_change_cols:
         if col in out_df.columns:
-            # #region agent log
-            _debug_log('export_orange_data.py:827', 'Filling column', {
-                'column': col,
-                'before_fill_nan_count': out_df[col].isna().sum(),
-                'first_3_values': out_df[col].iloc[0:3].tolist()
-            }, 'A')
-            # #endregion
-            
             # 先前向填充（從上往下填充）
             out_df[col] = out_df.groupby('ticker')[col].ffill()
             # 再後向填充（從下往上填充，處理開頭的NaN）
             out_df[col] = out_df.groupby('ticker')[col].bfill()
-            
-            # #region agent log
-            _debug_log('export_orange_data.py:833', 'After forward and backward fill', {
-                'column': col,
-                'after_fill_nan_count': out_df[col].isna().sum(),
-                'first_3_values': out_df[col].iloc[0:3].tolist()
-            }, 'A')
-            # #endregion
-    
-    # #region agent log
-    _debug_log('export_orange_data.py:840', 'After all forward fills', {
-        'remaining_nan_counts': {col: out_df[col].isna().sum() for col in lag_change_cols if col in out_df.columns},
-        'first_row_values': {col: str(out_df[col].iloc[0]) if col in out_df.columns else 'N/A' for col in lag_change_cols[:3]}
-    }, 'A')
-    # #endregion
     
     base_cols = ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'turnover']
     tech_columns = [

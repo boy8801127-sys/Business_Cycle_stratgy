@@ -360,6 +360,9 @@ class IndicatorDataCollector:
             composite_df = db_manager.execute_query_dataframe(
                 "SELECT * FROM composite_indicators_data ORDER BY date"
             )
+            business_cycle_df = db_manager.execute_query_dataframe(
+                "SELECT date, score, signal FROM business_cycle_data ORDER BY date"
+            )
             
             # 檢查是否有足夠的資料
             if leading_df.empty and coincident_df.empty and lagging_df.empty and composite_df.empty:
@@ -451,7 +454,28 @@ class IndicatorDataCollector:
                     merged_df = signal_merged
                 else:
                     merged_df = merged_df.merge(signal_merged, on='indicator_date', how='inner')
-            
+
+            # 2.5 補齊景氣燈號顏色：優先使用 business_cycle_data.signal（composite_indicators_data 的 business_cycle_signal 可能為空）
+            # business_cycle_data 為每日資料，indicator_date 對齊採 YYYYMMDD
+            if merged_df is not None and not merged_df.empty and business_cycle_df is not None and not business_cycle_df.empty:
+                bc = business_cycle_df.copy()
+                bc['indicator_date'] = pd.to_datetime(bc['date'], errors='coerce')
+                bc = bc[bc['indicator_date'].notna()]
+                bc['indicator_date'] = bc['indicator_date'].dt.strftime('%Y%m%d')
+                bc = bc.rename(columns={
+                    'signal': 'cycle_business_cycle_signal',
+                    'score': 'cycle_business_cycle_score'
+                })
+                bc = bc[['indicator_date', 'cycle_business_cycle_signal', 'cycle_business_cycle_score']]
+                merged_df = merged_df.merge(bc, on='indicator_date', how='left')
+
+                # 若 composite 的 signal_business_cycle_signal 為空，則用 business_cycle_data.signal 補上
+                before_null = int(merged_df['signal_business_cycle_signal'].isna().sum()) if 'signal_business_cycle_signal' in merged_df.columns else -1
+                if 'signal_business_cycle_signal' in merged_df.columns and 'cycle_business_cycle_signal' in merged_df.columns:
+                    mask_empty = merged_df['signal_business_cycle_signal'].isna() | (merged_df['signal_business_cycle_signal'].astype(str).str.strip() == '')
+                    merged_df.loc[mask_empty, 'signal_business_cycle_signal'] = merged_df.loc[mask_empty, 'cycle_business_cycle_signal']
+                after_null = int(merged_df['signal_business_cycle_signal'].isna().sum()) if 'signal_business_cycle_signal' in merged_df.columns else -1
+
             if merged_df is None or merged_df.empty:
                 print("[Warning] 合併後的指標資料為空")
                 return
