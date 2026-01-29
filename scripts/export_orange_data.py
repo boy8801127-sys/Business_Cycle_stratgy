@@ -10,11 +10,187 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from typing import Iterable, Optional, Sequence, List
+import json
+
+# #region agent log
+def _debug_log(location, message, data, hypothesis_id):
+    try:
+        with open('d:\\Business_Cycle_stratgy\\.cursor\\debug.log', 'a', encoding='utf-8') as f:
+            log_entry = {
+                'location': location,
+                'message': message,
+                'data': data,
+                'timestamp': datetime.now().isoformat(),
+                'sessionId': 'debug-session',
+                'hypothesisId': hypothesis_id
+            }
+            f.write(json.dumps(log_entry, ensure_ascii=False) + '\n')
+    except:
+        pass
+# #endregion
 
 # 添加專案根目錄到路徑
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data_collection.database_manager import DatabaseManager
+
+
+def get_column_chinese_mapping():
+    """
+    取得欄位中文映射字典
+    用於將英文欄位名稱轉換為中文，方便理解
+    """
+    mapping = {
+        # 基本欄位
+        'date': '日期',
+        'ticker': '股票代號',
+        'close': '收盤價',
+        'open': '開盤價',
+        'high': '最高價',
+        'low': '最低價',
+        'volume': '成交量',
+        'turnover': '成交金額',
+        
+        # 報酬率相關
+        'daily_return': '日報酬率(%)',
+        'cumulative_return': '累積報酬率(%)',
+        
+        # 時間特徵
+        'year': '年份',
+        'month': '月份',
+        'quarter': '季度',
+        'day_of_week': '星期幾(0=週一)',
+        'is_month_start': '是否月初(1=是)',
+        'is_month_end': '是否月末(1=是)',
+        
+        # 技術指標 - 日線
+        'ma5': '5日移動平均線',
+        'ma20': '20日移動平均線',
+        'ma60': '60日移動平均線',
+        'price_vs_ma5': '股價相對5日均線位置(%)',
+        'price_vs_ma20': '股價相對20日均線位置(%)',
+        'volatility_20': '20日波動率',
+        'volatility_pct_20': '20日波動率(%)',
+        'return_1d': '1日報酬率(%)',
+        'return_5d': '5日報酬率(%)',
+        'return_20d': '20日報酬率(%)',
+        'rsi': 'RSI指標(14日)',
+        'volume_ma5': '5日平均成交量',
+        'volume_ratio': '成交量比率',
+        
+        # 技術指標 - 月線
+        'ma3': '3月移動平均線',
+        'ma6': '6月移動平均線',
+        'ma12': '12月移動平均線',
+        'price_vs_ma3': '股價相對3月均線位置(%)',
+        'price_vs_ma6': '股價相對6月均線位置(%)',
+        'volatility_6': '6月波動率',
+        'volatility_pct_6': '6月波動率(%)',
+        'return_1m': '1月報酬率(%)',
+        'return_3m': '3月報酬率(%)',
+        'return_12m': '12月報酬率(%)',
+        'volume_ma3': '3月平均成交量',
+        
+        # 融資融券指標
+        'short_margin_ratio': '券資比',
+        'margin_balance_change_rate': '融資餘額變化率(%)',
+        'margin_balance_net_change': '融資餘額淨增減(仟元)',
+        'margin_buy_sell_ratio': '融資買賣比',
+        'margin_buy_sell_net': '融資買賣淨額(仟元)',
+        'short_balance_change_rate': '融券餘額變化率(%)',
+        'short_balance_net_change': '融券餘額淨增減(交易單位)',
+        'short_buy_sell_ratio': '融券買賣比',
+        'short_buy_sell_net': '融券買賣淨額(交易單位)',
+    }
+    
+    # 添加融資融券指標的滯後值和變化率
+    margin_base_cols = [
+        'short_margin_ratio',
+        'margin_balance_change_rate',
+        'margin_balance_net_change',
+        'margin_buy_sell_ratio',
+        'margin_buy_sell_net',
+        'short_balance_change_rate',
+        'short_balance_net_change',
+        'short_buy_sell_ratio',
+        'short_buy_sell_net'
+    ]
+    
+    for col in margin_base_cols:
+        if col in mapping:
+            mapping[f'{col}_lag1'] = f'{mapping[col]}_前1期'
+            mapping[f'{col}_lag2'] = f'{mapping[col]}_前2期'
+            mapping[f'{col}_change'] = f'{mapping[col]}_變化量'
+    
+    # 添加總經指標的中文映射（leading_, coincident_, lagging_, signal_ 前綴）
+    # 領先指標
+    mapping.update({
+        'leading_export_order_index': '領先_外銷訂單動向指數(以家數計)',
+        'leading_m1b_money_supply': '領先_貨幣總計數M1B(百萬元)',
+        'leading_m1b_yoy_month': '領先_M1B月對月年增率(%)',
+        'leading_m1b_yoy_momentum': '領先_M1B年增率動能(%)',
+        'leading_m1b_mom': '領先_M1B月對月變化率(%)',
+        'leading_m1b_vs_3m_avg': '領先_M1B當月vs前三個月平均變化率(%)',
+        'leading_stock_price_index': '領先_股價指數(Index1966=100)',
+        'leading_employment_net_entry_rate': '領先_工業及服務業受僱員工淨進入率(%)',
+        'leading_building_floor_area': '領先_建築物開工樓地板面積(千平方公尺)',
+        'leading_semiconductor_import': '領先_名目半導體設備進口(新臺幣百萬元)',
+    })
+    
+    # 同時指標
+    mapping.update({
+        'coincident_industrial_production_index': '同時_工業生產指數(Index2021=100)',
+        'coincident_electricity_consumption': '同時_電力(企業)總用電量(十億度)',
+        'coincident_manufacturing_sales_index': '同時_製造業銷售量指數(Index2021=100)',
+        'coincident_wholesale_retail_revenue': '同時_批發零售及餐飲業營業額(十億元)',
+        'coincident_overtime_hours': '同時_工業及服務業加班工時(小時)',
+        'coincident_export_value': '同時_海關出口值(十億元)',
+        'coincident_machinery_import': '同時_機械及電機設備進口值(十億元)',
+    })
+    
+    # 落後指標
+    mapping.update({
+        'lagging_unemployment_rate': '落後_失業率(%)',
+        'lagging_labor_cost_index': '落後_製造業單位產出勞動成本指數(2021=100)',
+        'lagging_loan_interest_rate': '落後_五大銀行新承做放款平均利率(年息百分比)',
+        'lagging_financial_institution_loans': '落後_全體金融機構放款與投資(10億元)',
+        'lagging_manufacturing_inventory': '落後_製造業存貨價值(千元)',
+    })
+    
+    # 信號指標
+    mapping.update({
+        'signal_leading_index': '信號_領先指標綜合指數',
+        'signal_leading_index_no_trend': '信號_領先指標不含趨勢指數',
+        'signal_coincident_index': '信號_同時指標綜合指數',
+        'signal_coincident_index_no_trend': '信號_同時指標不含趨勢指數',
+        'signal_lagging_index': '信號_落後指標綜合指數',
+        'signal_lagging_index_no_trend': '信號_落後指標不含趨勢指數',
+        'signal_business_cycle_score': '信號_景氣對策信號綜合分數',
+        'signal_business_cycle_signal': '信號_景氣對策信號(燈號顏色)',
+    })
+    
+    return mapping
+
+
+def rename_columns_to_chinese(df):
+    """
+    將 DataFrame 的欄位名稱轉換為中文
+    
+    參數:
+    - df: 原始 DataFrame
+    
+    返回:
+    - 欄位名稱已轉換為中文的 DataFrame
+    """
+    mapping = get_column_chinese_mapping()
+    
+    # 只重命名存在的欄位
+    rename_dict = {col: mapping[col] for col in df.columns if col in mapping}
+    
+    # 對於沒有映射的欄位，保持原樣（可能是動態生成的欄位）
+    df_renamed = df.rename(columns=rename_dict)
+    
+    return df_renamed
 
 
 def load_margin_data(db_manager: DatabaseManager, start_date: Optional[str] = None, end_date: Optional[str] = None):
@@ -301,7 +477,19 @@ def export_orange_data_daily(
 
     # 讀取指標數據
     print("\n正在讀取指標數據...")
-    indicator_df = load_indicator_data(db_manager, start_date=_to_yyyymmdd(start_ts), end_date=_to_yyyymmdd(end_ts))
+    # 指標對齊採 n-2 個月，為避免一開始就對不到（尤其是區間開頭），讀取範圍往前多抓幾個月
+    indicator_start_ts = start_ts.replace(day=1) - pd.DateOffset(months=3)
+    indicator_start_yyyymmdd = _to_yyyymmdd(indicator_start_ts)
+    indicator_end_yyyymmdd = _to_yyyymmdd(end_ts)
+    # #region agent log
+    _debug_log(
+        "export_orange_data.py:indicator_load_daily",
+        "Loading indicator_df with extended start",
+        {"start_date": start_date, "end_date": end_date, "indicator_start": indicator_start_yyyymmdd, "indicator_end": indicator_end_yyyymmdd},
+        "B",
+    )
+    # #endregion
+    indicator_df = load_indicator_data(db_manager, start_date=indicator_start_yyyymmdd, end_date=indicator_end_yyyymmdd)
     if indicator_df.empty:
         print("[Error] 無法讀取指標數據")
         return None
@@ -374,6 +562,18 @@ def export_orange_data_daily(
             result_df[f'{col}_lag2'] = result_df.groupby('ticker')[col].shift(2)
             result_df[f'{col}_change'] = result_df.groupby('ticker')[col].diff()
     
+    # 前向填充融資融券衍生指標的缺失值（開頭數據）
+    print("  前向填充融資融券衍生指標的缺失值...")
+    lag_change_cols = [f'{col}_lag1' for col in margin_derived_cols if col in result_df.columns] + \
+                      [f'{col}_lag2' for col in margin_derived_cols if col in result_df.columns] + \
+                      [f'{col}_change' for col in margin_derived_cols if col in result_df.columns]
+    for col in lag_change_cols:
+        if col in result_df.columns:
+            # 先前向填充（從上往下填充）
+            result_df[col] = result_df.groupby('ticker')[col].ffill()
+            # 再後向填充（從下往上填充，處理開頭的NaN）
+            result_df[col] = result_df.groupby('ticker')[col].bfill()
+    
     result_df = result_df.drop(columns=['date_dt'])
 
     # 確保欄位順序：date, ticker, close, 然後是指標欄位，最後是融資融券衍生指標
@@ -392,6 +592,12 @@ def export_orange_data_daily(
 
     print("  計算日報酬率...")
     result_df['daily_return'] = result_df.groupby('ticker')['close'].pct_change()
+    
+    # 前向填充日報酬率的缺失值（開頭數據）
+    # 前向填充 daily_return 的缺失值（開頭數據）
+    result_df['daily_return'] = result_df.groupby('ticker')['daily_return'].ffill()
+    # 再後向填充（從下往上填充，處理開頭的NaN）
+    result_df['daily_return'] = result_df.groupby('ticker')['daily_return'].bfill()
 
     print("  計算累積報酬率...")
     cumulative_returns = result_df.groupby('ticker')['daily_return'].apply(
@@ -428,6 +634,10 @@ def export_orange_data_daily(
     column_order = ['date', 'ticker', 'close', 'daily_return', 'cumulative_return'] + time_features + indicator_cols + margin_cols
     result_df = result_df[column_order]
 
+    # 將欄位名稱轉換為中文
+    print("\n正在轉換欄位名稱為中文...")
+    result_df = rename_columns_to_chinese(result_df)
+    
     # 輸出 CSV 文件
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     print(f"\n正在輸出 CSV 文件：{output_path}")
@@ -435,8 +645,10 @@ def export_orange_data_daily(
 
     print(f"\n[完成] 成功輸出 {len(result_df)} 筆數據")
     print(f"  欄位數量：{len(result_df.columns)}")
-    print(f"  日期範圍：{result_df['date'].min()} 至 {result_df['date'].max()}")
-    print(f"  股票代號：{sorted(result_df['ticker'].unique())}")
+    date_col = '日期' if '日期' in result_df.columns else 'date'
+    ticker_col = '股票代號' if '股票代號' in result_df.columns else 'ticker'
+    print(f"  日期範圍：{result_df[date_col].min()} 至 {result_df[date_col].max()}")
+    print(f"  股票代號：{sorted(result_df[ticker_col].unique())}")
     print(f"\n前 5 筆數據預覽：")
     print(result_df.head())
 
@@ -521,7 +733,19 @@ def export_orange_data_monthly(
 
     # 讀取指標數據（月資料）
     print("\n正在讀取指標數據...")
-    indicator_df = load_indicator_data(db_manager, start_date=_to_yyyymmdd(start_ts), end_date=_to_yyyymmdd(end_ts))
+    # 指標對齊採 n-2 個月，為避免一開始就對不到（尤其是區間開頭），讀取範圍往前多抓幾個月
+    indicator_start_ts = start_ts.replace(day=1) - pd.DateOffset(months=3)
+    indicator_start_yyyymmdd = _to_yyyymmdd(indicator_start_ts)
+    indicator_end_yyyymmdd = _to_yyyymmdd(end_ts)
+    # #region agent log
+    _debug_log(
+        "export_orange_data.py:indicator_load_monthly",
+        "Loading indicator_df with extended start",
+        {"start_date": start_date, "end_date": end_date, "indicator_start": indicator_start_yyyymmdd, "indicator_end": indicator_end_yyyymmdd},
+        "B",
+    )
+    # #endregion
+    indicator_df = load_indicator_data(db_manager, start_date=indicator_start_yyyymmdd, end_date=indicator_end_yyyymmdd)
     if indicator_df.empty:
         print("[Error] 無法讀取指標數據")
         return None
@@ -636,6 +860,51 @@ def export_orange_data_monthly(
             out_df[f'{col}_lag2'] = out_df.groupby('ticker')[col].shift(2)
             out_df[f'{col}_change'] = out_df.groupby('ticker')[col].diff()
     
+    # 前向填充融資融券衍生指標的缺失值（開頭數據）
+    print("  前向填充融資融券衍生指標的缺失值...")
+    lag_change_cols = [f'{col}_lag1' for col in margin_derived_cols if col in out_df.columns] + \
+                      [f'{col}_lag2' for col in margin_derived_cols if col in out_df.columns] + \
+                      [f'{col}_change' for col in margin_derived_cols if col in out_df.columns]
+    
+    # #region agent log
+    _debug_log('export_orange_data.py:820', 'Before forward fill', {
+        'lag_change_cols': lag_change_cols,
+        'first_row_nan_count': {col: out_df[col].iloc[0:3].isna().sum() if col in out_df.columns else 0 for col in lag_change_cols[:3]},
+        'total_rows': len(out_df),
+        'tickers': out_df['ticker'].unique().tolist() if 'ticker' in out_df.columns else []
+    }, 'A')
+    # #endregion
+    
+    for col in lag_change_cols:
+        if col in out_df.columns:
+            # #region agent log
+            _debug_log('export_orange_data.py:827', 'Filling column', {
+                'column': col,
+                'before_fill_nan_count': out_df[col].isna().sum(),
+                'first_3_values': out_df[col].iloc[0:3].tolist()
+            }, 'A')
+            # #endregion
+            
+            # 先前向填充（從上往下填充）
+            out_df[col] = out_df.groupby('ticker')[col].ffill()
+            # 再後向填充（從下往上填充，處理開頭的NaN）
+            out_df[col] = out_df.groupby('ticker')[col].bfill()
+            
+            # #region agent log
+            _debug_log('export_orange_data.py:833', 'After forward and backward fill', {
+                'column': col,
+                'after_fill_nan_count': out_df[col].isna().sum(),
+                'first_3_values': out_df[col].iloc[0:3].tolist()
+            }, 'A')
+            # #endregion
+    
+    # #region agent log
+    _debug_log('export_orange_data.py:840', 'After all forward fills', {
+        'remaining_nan_counts': {col: out_df[col].isna().sum() for col in lag_change_cols if col in out_df.columns},
+        'first_row_values': {col: str(out_df[col].iloc[0]) if col in out_df.columns else 'N/A' for col in lag_change_cols[:3]}
+    }, 'A')
+    # #endregion
+    
     base_cols = ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'turnover']
     tech_columns = [
         'ma3', 'ma6', 'ma12',
@@ -651,14 +920,20 @@ def export_orange_data_monthly(
     margin_cols = [col for col in margin_cols if col in out_df.columns]
     out_df = out_df[base_cols + tech_cols + indicator_cols + margin_cols]
 
+    # 將欄位名稱轉換為中文
+    print("\n正在轉換欄位名稱為中文...")
+    out_df = rename_columns_to_chinese(out_df)
+    
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     print(f"\n正在輸出 CSV 文件：{output_path}")
     out_df.to_csv(output_path, index=False, encoding='utf-8-sig')
 
     print(f"\n[完成] 成功輸出 {len(out_df)} 筆月線數據")
     print(f"  欄位數量：{len(out_df.columns)}")
-    print(f"  日期範圍：{out_df['date'].min()} 至 {out_df['date'].max()}")
-    print(f"  股票代號：{sorted(out_df['ticker'].unique())}")
+    date_col = '日期' if '日期' in out_df.columns else 'date'
+    ticker_col = '股票代號' if '股票代號' in out_df.columns else 'ticker'
+    print(f"  日期範圍：{out_df[date_col].min()} 至 {out_df[date_col].max()}")
+    print(f"  股票代號：{sorted(out_df[ticker_col].unique())}")
     print(f"\n前 5 筆數據預覽：")
     print(out_df.head())
 

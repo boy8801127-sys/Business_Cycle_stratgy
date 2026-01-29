@@ -15,6 +15,78 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data_collection.database_manager import DatabaseManager
 
 
+def get_prediction_column_chinese_mapping():
+    """
+    取得預測數據欄位中文映射字典
+    包含預測數據特有的欄位映射
+    """
+    mapping = {
+        # 基本欄位
+        'date': '日期',
+        'ticker': '股票代號',
+        'close': '收盤價',
+        'volume': '成交量',
+        
+        # 景氣燈號相關
+        'cycle_score': '當月景氣分數',
+        'signal_encoded': '燈號編碼(1=藍燈,2=黃藍燈,3=綠燈,4=黃紅燈,5=紅燈)',
+        'score_lag1': '前1個月景氣分數',
+        'score_lag2': '前2個月景氣分數',
+        'score_lag3': '前3個月景氣分數',
+        'score_change': '景氣分數變化',
+        'score_change_pct': '景氣分數變化率(%)',
+        
+        # 技術指標 - 日線
+        'ma5': '5日移動平均線',
+        'ma20': '20日移動平均線',
+        'ma60': '60日移動平均線',
+        'price_vs_ma5': '股價相對5日均線位置(%)',
+        'price_vs_ma20': '股價相對20日均線位置(%)',
+        'volatility_20': '20日波動率',
+        'volatility_pct_20': '20日波動率(%)',
+        'return_1d': '1日報酬率(%)',
+        'return_5d': '5日報酬率(%)',
+        'return_20d': '20日報酬率(%)',
+        'rsi': 'RSI指標(14日)',
+        'volume_ma5': '5日平均成交量',
+        'volume_ratio': '成交量比率',
+    }
+    
+    return mapping
+
+
+def rename_prediction_columns_to_chinese(df):
+    """
+    將預測數據 DataFrame 的欄位名稱轉換為中文
+    
+    參數:
+    - df: 原始 DataFrame
+    
+    返回:
+    - 欄位名稱已轉換為中文的 DataFrame
+    """
+    mapping = get_prediction_column_chinese_mapping()
+    
+    # 處理動態生成的目標變數欄位
+    for col in df.columns:
+        if col.startswith('future_return_'):
+            # future_return_5d -> 未來5日報酬率(%)
+            days = col.replace('future_return_', '').replace('d', '')
+            mapping[col] = f'未來{days}日報酬率(%)'
+        elif col.startswith('future_direction_'):
+            # future_direction_5d -> 未來5日漲跌方向(1=上漲,0=下跌)
+            days = col.replace('future_direction_', '').replace('d', '')
+            mapping[col] = f'未來{days}日漲跌方向(1=上漲,0=下跌)'
+    
+    # 只重命名存在的欄位
+    rename_dict = {col: mapping[col] for col in df.columns if col in mapping}
+    
+    # 對於沒有映射的欄位，保持原樣
+    df_renamed = df.rename(columns=rename_dict)
+    
+    return df_renamed
+
+
 class PredictionDataExporter:
     """預測資料導出器"""
     
@@ -204,6 +276,23 @@ class PredictionDataExporter:
         df['score_change'] = df['score'] - df['score'].shift(1)
         df['score_change_pct'] = (df['score'] - df['score'].shift(1)) / df['score'].shift(1) * 100
         
+        # 前向填充景氣燈號特徵的缺失值（開頭數據）
+        print("[Info] 前向填充景氣燈號特徵的缺失值...")
+        lag_cols = ['score_lag1', 'score_lag2', 'score_lag3', 'score_change', 'score_change_pct']
+        for col in lag_cols:
+            if col in df.columns:
+                # 如果有多個 ticker，按 ticker 分組填充；否則直接填充
+                if 'ticker' in df.columns and df['ticker'].nunique() > 1:
+                    # 先前向填充（從上往下填充）
+                    df[col] = df.groupby('ticker')[col].ffill()
+                    # 再後向填充（從下往上填充，處理開頭的NaN）
+                    df[col] = df.groupby('ticker')[col].bfill()
+                else:
+                    # 先前向填充（從上往下填充）
+                    df[col] = df[col].ffill()
+                    # 再後向填充（從下往上填充，處理開頭的NaN）
+                    df[col] = df[col].bfill()
+        
         # 注意：技術指標（MA5/MA20/MA60、RSI、波動率、報酬率等）已從資料庫讀取並合併
         # 不需要在這裡重新計算
         
@@ -338,6 +427,10 @@ class PredictionDataExporter:
         
         # 移除包含 NaN 的目標變數行（最後幾天沒有未來資料）
         export_df = export_df.dropna(subset=target_columns)
+        
+        # 將欄位名稱轉換為中文
+        print("[Info] 正在轉換欄位名稱為中文...")
+        export_df = rename_prediction_columns_to_chinese(export_df)
         
         # 匯出為 CSV
         export_df.to_csv(output_path, index=False, encoding='utf-8-sig')
