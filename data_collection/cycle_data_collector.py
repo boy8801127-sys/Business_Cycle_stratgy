@@ -91,7 +91,7 @@ class CycleDataCollector:
         
         參數:
         - start_date: 起始日期（datetime 或字串 'YYYY-MM-DD'），預設為資料的起始日期
-        - end_date: 結束日期（datetime 或字串 'YYYY-MM-DD'），預設為資料的結束日期
+        - end_date: 結束日期（datetime 或字串 'YYYY-MM-DD'），預設為今天
         
         回傳:
         - DataFrame 包含交易日資料
@@ -102,7 +102,7 @@ class CycleDataCollector:
         # 取得台灣交易日曆
         cal = pmc.get_calendar('XTAI')
         
-        # 確定日期範圍
+        # 確定日期範圍：如果不提供，使用資料的完整日期範圍
         if start_date is None:
             start_date = self.monthly_data['date'].min()
         else:
@@ -110,7 +110,10 @@ class CycleDataCollector:
                 start_date = pd.Timestamp(start_date)
         
         if end_date is None:
-            end_date = datetime.now()
+            # 使用資料的最大日期或今天，取較大者
+            max_data_date = self.monthly_data['date'].max()
+            today = datetime.now()
+            end_date = max(max_data_date, pd.Timestamp(today))
         else:
             if isinstance(end_date, str):
                 end_date = pd.Timestamp(end_date)
@@ -198,8 +201,8 @@ class CycleDataCollector:
         完整處理流程：讀取 CSV 並轉換為交易日資料
         
         參數:
-        - start_date: 起始日期（datetime 或字串 'YYYY-MM-DD'）
-        - end_date: 結束日期（datetime 或字串 'YYYY-MM-DD'）
+        - start_date: 起始日期（datetime 或字串 'YYYY-MM-DD'），預設為 None（使用資料的完整日期範圍）
+        - end_date: 結束日期（datetime 或字串 'YYYY-MM-DD'），預設為 None（使用資料的最大日期或今天）
         
         回傳:
         - DataFrame 包含處理後的交易日資料
@@ -207,7 +210,7 @@ class CycleDataCollector:
         # 讀取 CSV
         self.load_cycle_data_from_csv()
         
-        # 轉換為交易日資料
+        # 轉換為交易日資料（如果不提供日期範圍，使用資料的完整日期範圍）
         daily_df = self.convert_monthly_to_daily(start_date, end_date)
         
         return daily_df

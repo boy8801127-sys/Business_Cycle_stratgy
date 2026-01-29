@@ -46,6 +46,8 @@ class DatabaseManager:
         # 初始化技術指標表
         self.init_stock_technical_indicators_table()
         self.init_stock_technical_indicators_monthly_table()
+        # 初始化總經指標合併表
+        self.init_merged_economic_indicators_table()
     
     def get_connection(self):
         """取得資料庫連接"""
@@ -899,7 +901,42 @@ class DatabaseManager:
         self.init_lagging_indicators_table()
         self.init_composite_indicators_table()
         self.init_business_cycle_signal_components_table()
+        self.init_merged_economic_indicators_table()
         print("[Info] 所有景氣指標資料表初始化完成")
+    
+    def init_merged_economic_indicators_table(self):
+        """
+        初始化總經指標合併表（merged_economic_indicators）
+        此表包含所有合併後的總經指標，帶前綴（leading_, coincident_, lagging_, signal_）
+        注意：表結構會動態調整以適應實際匯入的欄位
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # 檢查表是否存在
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='merged_economic_indicators'")
+            table_exists = cursor.fetchone()
+            
+            if not table_exists:
+                # 建立基本表結構（只包含日期欄位）
+                # 其他欄位會在 calculate_and_save_merged_indicators 中動態添加
+                cursor.execute('''
+                    CREATE TABLE merged_economic_indicators (
+                        indicator_date TEXT NOT NULL PRIMARY KEY,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                ''')
+                conn.commit()
+                print("[Info] 總經指標合併表初始化完成（基本結構）")
+            else:
+                print("[Info] 總經指標合併表已存在")
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] 初始化總經指標合併表失敗: {e}")
+            raise
+        finally:
+            conn.close()
     
     def init_stock_technical_indicators_table(self):
         """
@@ -1399,6 +1436,101 @@ class DatabaseManager:
                 print("[Info] 已建立: vw_stock_technical_indicators_monthly")
             except Exception as e:
                 print(f"[Warning] 建立 vw_stock_technical_indicators_monthly 失敗: {e}")
+            
+            # 16. vw_merged_economic_indicators - 總經指標合併表
+            cursor.execute("DROP VIEW IF EXISTS vw_merged_economic_indicators")
+            try:
+                # 檢查表是否存在
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='merged_economic_indicators'")
+                if not cursor.fetchone():
+                    print("[Warning] merged_economic_indicators 表不存在，跳過建立 VIEW")
+                else:
+                    # 取得表結構
+                    cursor.execute("PRAGMA table_info(merged_economic_indicators)")
+                    columns = cursor.fetchall()
+                    column_names = [col[1] for col in columns]
+                    
+                    if 'indicator_date' not in column_names:
+                        print("[Warning] merged_economic_indicators 表缺少 indicator_date 欄位")
+                    else:
+                        # 建立欄位映射字典
+                        column_mapping = {
+                            'indicator_date': '日期',
+                            'created_at': '資料建立時間'
+                        }
+                        
+                        # 領先指標映射
+                        leading_mapping = {
+                            'leading_export_order_index': '領先_外銷訂單動向指數(以家數計)',
+                            'leading_m1b_money_supply': '領先_貨幣總計數M1B(百萬元)',
+                            'leading_m1b_yoy_month': '領先_M1B月對月年增率(%)',
+                            'leading_m1b_yoy_momentum': '領先_M1B年增率動能(%)',
+                            'leading_m1b_mom': '領先_M1B月對月變化率(%)',
+                            'leading_m1b_vs_3m_avg': '領先_M1B當月vs前三個月平均變化率(%)',
+                            'leading_stock_price_index': '領先_股價指數(Index1966=100)',
+                            'leading_employment_net_entry_rate': '領先_工業及服務業受僱員工淨進入率(%)',
+                            'leading_building_floor_area': '領先_建築物開工樓地板面積(千平方公尺)',
+                            'leading_semiconductor_import': '領先_名目半導體設備進口(新臺幣百萬元)'
+                        }
+                        
+                        # 同時指標映射
+                        coincident_mapping = {
+                            'coincident_industrial_production_index': '同時_工業生產指數(Index2021=100)',
+                            'coincident_electricity_consumption': '同時_電力(企業)總用電量(十億度)',
+                            'coincident_manufacturing_sales_index': '同時_製造業銷售量指數(Index2021=100)',
+                            'coincident_wholesale_retail_revenue': '同時_批發零售及餐飲業營業額(十億元)',
+                            'coincident_overtime_hours': '同時_工業及服務業加班工時(小時)',
+                            'coincident_export_value': '同時_海關出口值(十億元)',
+                            'coincident_machinery_import': '同時_機械及電機設備進口值(十億元)'
+                        }
+                        
+                        # 落後指標映射
+                        lagging_mapping = {
+                            'lagging_unemployment_rate': '落後_失業率(%)',
+                            'lagging_labor_cost_index': '落後_製造業單位產出勞動成本指數(2021=100)',
+                            'lagging_loan_interest_rate': '落後_五大銀行新承做放款平均利率(年息百分比)',
+                            'lagging_financial_institution_loans': '落後_全體金融機構放款與投資(10億元)',
+                            'lagging_manufacturing_inventory': '落後_製造業存貨價值(千元)'
+                        }
+                        
+                        # 信號指標映射
+                        signal_mapping = {
+                            'signal_leading_index': '信號_領先指標綜合指數',
+                            'signal_leading_index_no_trend': '信號_領先指標不含趨勢指數',
+                            'signal_coincident_index': '信號_同時指標綜合指數',
+                            'signal_coincident_index_no_trend': '信號_同時指標不含趨勢指數',
+                            'signal_lagging_index': '信號_落後指標綜合指數',
+                            'signal_lagging_index_no_trend': '信號_落後指標不含趨勢指數',
+                            'signal_business_cycle_score': '信號_景氣對策信號綜合分數',
+                            'signal_business_cycle_signal': '信號_景氣對策信號(燈號顏色)'
+                        }
+                        
+                        # 合併所有映射
+                        column_mapping.update(leading_mapping)
+                        column_mapping.update(coincident_mapping)
+                        column_mapping.update(lagging_mapping)
+                        column_mapping.update(signal_mapping)
+                        
+                        # 建立 SELECT 語句
+                        select_fields = []
+                        for col_name in column_names:
+                            if col_name in column_mapping:
+                                select_fields.append(f"{col_name} AS '{column_mapping[col_name]}'")
+                            else:
+                                # 如果沒有映射，使用原欄位名稱
+                                select_fields.append(col_name)
+                        
+                        view_sql = f'''
+                            CREATE VIEW vw_merged_economic_indicators AS
+                            SELECT 
+                                {', '.join(select_fields)}
+                            FROM merged_economic_indicators
+                        '''
+                        
+                        cursor.execute(view_sql)
+                        print("[Info] 已建立: vw_merged_economic_indicators")
+            except Exception as e:
+                print(f"[Warning] 建立 vw_merged_economic_indicators 失敗: {e}")
             
             conn.commit()
             

@@ -329,4 +329,161 @@ class IndicatorDataCollector:
                 print(f"[Error] {csv_name} 匯入失敗: {result.get('error', '未知錯誤')}")
         
         return results
+    
+    def calculate_and_save_merged_indicators(self, db_manager):
+        """
+        計算並儲存合併後的總經指標到 merged_economic_indicators 表
+        
+        參數:
+        - db_manager: DatabaseManager 實例
+        
+        邏輯:
+        1. 從資料庫讀取各指標表（leading, coincident, lagging, composite）
+        2. 添加前綴（leading_, coincident_, lagging_, signal_）
+        3. 合併所有指標（inner join on date）
+        4. 動態調整表結構（如果需要）
+        5. 儲存到 merged_economic_indicators 表
+        """
+        print("\n[Info] 開始計算合併總經指標...")
+        
+        try:
+            # 1. 從資料庫讀取各指標表
+            leading_df = db_manager.execute_query_dataframe(
+                "SELECT * FROM leading_indicators_data ORDER BY date"
+            )
+            coincident_df = db_manager.execute_query_dataframe(
+                "SELECT * FROM coincident_indicators_data ORDER BY date"
+            )
+            lagging_df = db_manager.execute_query_dataframe(
+                "SELECT * FROM lagging_indicators_data ORDER BY date"
+            )
+            composite_df = db_manager.execute_query_dataframe(
+                "SELECT * FROM composite_indicators_data ORDER BY date"
+            )
+            
+            # 檢查是否有足夠的資料
+            if leading_df.empty and coincident_df.empty and lagging_df.empty and composite_df.empty:
+                print("[Warning] 所有指標表都是空的，無法計算合併指標")
+                return
+            
+            # 2. 添加前綴並準備合併
+            merged_df = None
+            
+            # 處理領先指標
+            if not leading_df.empty:
+                leading_merged = leading_df.copy()
+                # 將 date 轉換為 indicator_date（YYYYMMDD 格式）
+                leading_merged['indicator_date'] = pd.to_datetime(leading_merged['date'], format='%Y%m%d', errors='coerce')
+                if leading_merged['indicator_date'].isna().all():
+                    # 如果 YYYYMMDD 格式失敗，嘗試 YYYY-MM-DD
+                    leading_merged['indicator_date'] = pd.to_datetime(leading_merged['date'], errors='coerce')
+                # 過濾掉 NaN 值
+                leading_merged = leading_merged[leading_merged['indicator_date'].notna()]
+                leading_merged['indicator_date'] = leading_merged['indicator_date'].dt.strftime('%Y%m%d')
+                
+                # 添加前綴（排除 date 和 created_at）
+                cols_to_rename = {col: f'leading_{col}' for col in leading_merged.columns 
+                                 if col not in ['date', 'indicator_date', 'created_at']}
+                leading_merged = leading_merged.rename(columns=cols_to_rename)
+                leading_merged = leading_merged[['indicator_date'] + [col for col in leading_merged.columns 
+                                                                      if col.startswith('leading_')]]
+                merged_df = leading_merged
+            
+            # 合併同時指標
+            if not coincident_df.empty:
+                coincident_merged = coincident_df.copy()
+                coincident_merged['indicator_date'] = pd.to_datetime(coincident_merged['date'], format='%Y%m%d', errors='coerce')
+                if coincident_merged['indicator_date'].isna().all():
+                    coincident_merged['indicator_date'] = pd.to_datetime(coincident_merged['date'], errors='coerce')
+                # 過濾掉 NaN 值
+                coincident_merged = coincident_merged[coincident_merged['indicator_date'].notna()]
+                coincident_merged['indicator_date'] = coincident_merged['indicator_date'].dt.strftime('%Y%m%d')
+                
+                cols_to_rename = {col: f'coincident_{col}' for col in coincident_merged.columns 
+                                 if col not in ['date', 'indicator_date', 'created_at']}
+                coincident_merged = coincident_merged.rename(columns=cols_to_rename)
+                coincident_merged = coincident_merged[['indicator_date'] + [col for col in coincident_merged.columns 
+                                                                           if col.startswith('coincident_')]]
+                
+                if merged_df is None:
+                    merged_df = coincident_merged
+                else:
+                    merged_df = merged_df.merge(coincident_merged, on='indicator_date', how='inner')
+            
+            # 合併落後指標
+            if not lagging_df.empty:
+                lagging_merged = lagging_df.copy()
+                lagging_merged['indicator_date'] = pd.to_datetime(lagging_merged['date'], format='%Y%m%d', errors='coerce')
+                if lagging_merged['indicator_date'].isna().all():
+                    lagging_merged['indicator_date'] = pd.to_datetime(lagging_merged['date'], errors='coerce')
+                # 過濾掉 NaN 值
+                lagging_merged = lagging_merged[lagging_merged['indicator_date'].notna()]
+                lagging_merged['indicator_date'] = lagging_merged['indicator_date'].dt.strftime('%Y%m%d')
+                
+                cols_to_rename = {col: f'lagging_{col}' for col in lagging_merged.columns 
+                                 if col not in ['date', 'indicator_date', 'created_at']}
+                lagging_merged = lagging_merged.rename(columns=cols_to_rename)
+                lagging_merged = lagging_merged[['indicator_date'] + [col for col in lagging_merged.columns 
+                                                                      if col.startswith('lagging_')]]
+                
+                if merged_df is None:
+                    merged_df = lagging_merged
+                else:
+                    merged_df = merged_df.merge(lagging_merged, on='indicator_date', how='inner')
+            
+            # 合併綜合指標（signal_前綴）
+            if not composite_df.empty:
+                signal_merged = composite_df.copy()
+                signal_merged['indicator_date'] = pd.to_datetime(signal_merged['date'], format='%Y%m%d', errors='coerce')
+                if signal_merged['indicator_date'].isna().all():
+                    signal_merged['indicator_date'] = pd.to_datetime(signal_merged['date'], errors='coerce')
+                # 過濾掉 NaN 值
+                signal_merged = signal_merged[signal_merged['indicator_date'].notna()]
+                signal_merged['indicator_date'] = signal_merged['indicator_date'].dt.strftime('%Y%m%d')
+                
+                cols_to_rename = {col: f'signal_{col}' for col in signal_merged.columns 
+                                 if col not in ['date', 'indicator_date', 'created_at']}
+                signal_merged = signal_merged.rename(columns=cols_to_rename)
+                signal_merged = signal_merged[['indicator_date'] + [col for col in signal_merged.columns 
+                                                                    if col.startswith('signal_')]]
+                
+                if merged_df is None:
+                    merged_df = signal_merged
+                else:
+                    merged_df = merged_df.merge(signal_merged, on='indicator_date', how='inner')
+            
+            if merged_df is None or merged_df.empty:
+                print("[Warning] 合併後的指標資料為空")
+                return
+            
+            # 3. 動態調整表結構
+            conn = db_manager.get_connection()
+            cursor = conn.cursor()
+            try:
+                # 檢查現有欄位
+                cursor.execute("PRAGMA table_info(merged_economic_indicators)")
+                existing_columns = [col[1] for col in cursor.fetchall()]
+                
+                # 為新欄位添加列
+                for col in merged_df.columns:
+                    if col not in existing_columns and col != 'indicator_date':
+                        try:
+                            cursor.execute(f"ALTER TABLE merged_economic_indicators ADD COLUMN {col} REAL")
+                            print(f"[Info] 新增欄位: {col}")
+                        except Exception as e:
+                            print(f"[Warning] 無法新增欄位 {col}: {e}")
+                
+                conn.commit()
+            finally:
+                conn.close()
+            
+            # 4. 儲存到資料庫
+            db_manager.save_dataframe(merged_df, 'merged_economic_indicators', if_exists='replace')
+            print(f"[Success] 合併總經指標計算完成，共 {len(merged_df)} 筆資料")
+            
+        except Exception as e:
+            print(f"[Error] 計算合併總經指標失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
 

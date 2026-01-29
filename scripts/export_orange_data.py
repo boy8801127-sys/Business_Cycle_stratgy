@@ -73,56 +73,46 @@ def get_margin_for_date(target_date: pd.Timestamp, margin_df: pd.DataFrame):
     return pd.Series(dtype=float)
 
 
-def load_indicator_data():
-    """讀取所有指標數據（領先、同時、落後、綜合指標）"""
-    base_path = 'business_cycle'
+def load_indicator_data(db_manager: Optional[DatabaseManager] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """
+    讀取所有指標數據（領先、同時、落後、綜合指標）
+    從 merged_economic_indicators 表讀取預先計算的合併指標
     
-    # 讀取領先指標構成項目
-    leading_path = os.path.join(base_path, '領先指標構成項目.csv')
-    leading_df = pd.read_csv(leading_path, encoding='utf-8')
-    leading_df['indicator_date'] = pd.to_datetime(leading_df['Date'], format='%Y%m')
-    # 添加前綴
-    leading_cols = {col: f'leading_{col}' for col in leading_df.columns if col not in ['Date', 'indicator_date']}
-    leading_df = leading_df.rename(columns=leading_cols)
+    參數:
+    - db_manager: DatabaseManager 實例（如果為 None，則建立新的實例）
+    - start_date: 起始日期（YYYYMMDD 格式，可選）
+    - end_date: 結束日期（YYYYMMDD 格式，可選）
     
-    # 讀取同時指標構成項目
-    coincident_path = os.path.join(base_path, '同時指標構成項目.csv')
-    coincident_df = pd.read_csv(coincident_path, encoding='utf-8')
-    coincident_df['indicator_date'] = pd.to_datetime(coincident_df['Date'], format='%Y%m')
-    # 添加前綴
-    coincident_cols = {col: f'coincident_{col}' for col in coincident_df.columns if col not in ['Date', 'indicator_date']}
-    coincident_df = coincident_df.rename(columns=coincident_cols)
+    返回:
+    - DataFrame: 包含合併指標的數據，indicator_date 欄位為 datetime 類型
+    """
+    if db_manager is None:
+        db_manager = DatabaseManager()
     
-    # 讀取落後指標構成項目
-    lagging_path = os.path.join(base_path, '落後指標構成項目.csv')
-    lagging_df = pd.read_csv(lagging_path, encoding='utf-8')
-    lagging_df['indicator_date'] = pd.to_datetime(lagging_df['Date'], format='%Y%m')
-    # 添加前綴
-    lagging_cols = {col: f'lagging_{col}' for col in lagging_df.columns if col not in ['Date', 'indicator_date']}
-    lagging_df = lagging_df.rename(columns=lagging_cols)
+    # 建立查詢語句
+    query = "SELECT * FROM merged_economic_indicators WHERE 1=1"
+    params = []
     
-    # 讀取景氣指標與燈號（包含綜合指數和燈號分數）
-    signal_path = os.path.join(base_path, '景氣指標與燈號.csv')
-    signal_df = pd.read_csv(signal_path, encoding='utf-8')
-    signal_df['indicator_date'] = pd.to_datetime(signal_df['Date'], format='%Y%m')
-    # 添加前綴
-    signal_cols = {col: f'signal_{col}' for col in signal_df.columns if col not in ['Date', 'indicator_date']}
-    signal_df = signal_df.rename(columns=signal_cols)
+    if start_date:
+        query += " AND indicator_date >= ?"
+        params.append(start_date)
     
-    # 合併所有指標數據（使用 inner join 確保所有指標都有相同的日期）
-    merged_indicators = leading_df.merge(
-        coincident_df[['indicator_date'] + [col for col in coincident_df.columns if col.startswith('coincident_')]],
-        on='indicator_date',
-        how='inner'
-    ).merge(
-        lagging_df[['indicator_date'] + [col for col in lagging_df.columns if col.startswith('lagging_')]],
-        on='indicator_date',
-        how='inner'
-    ).merge(
-        signal_df[['indicator_date'] + [col for col in signal_df.columns if col.startswith('signal_')]],
-        on='indicator_date',
-        how='inner'
-    )
+    if end_date:
+        query += " AND indicator_date <= ?"
+        params.append(end_date)
+    
+    query += " ORDER BY indicator_date"
+    
+    # 從資料庫讀取
+    merged_indicators = db_manager.execute_query_dataframe(query, params=params if params else None)
+    
+    if merged_indicators.empty:
+        print("[Warning] merged_economic_indicators 表為空，請先執行選項1匯入資料並計算合併指標")
+        return pd.DataFrame()
+    
+    # 將 indicator_date 從 YYYYMMDD 字串轉換為 datetime
+    merged_indicators['indicator_date'] = pd.to_datetime(merged_indicators['indicator_date'], format='%Y%m%d', errors='coerce')
+    merged_indicators = merged_indicators[merged_indicators['indicator_date'].notna()]
     
     # 按日期排序
     merged_indicators = merged_indicators.sort_values('indicator_date').reset_index(drop=True)
@@ -311,7 +301,10 @@ def export_orange_data_daily(
 
     # 讀取指標數據
     print("\n正在讀取指標數據...")
-    indicator_df = load_indicator_data()
+    indicator_df = load_indicator_data(db_manager, start_date=_to_yyyymmdd(start_ts), end_date=_to_yyyymmdd(end_ts))
+    if indicator_df.empty:
+        print("[Error] 無法讀取指標數據")
+        return None
     print(f"  共讀取 {len(indicator_df)} 筆指標數據（從 {indicator_df['indicator_date'].min()} 至 {indicator_df['indicator_date'].max()}）")
 
     # 讀取融資維持率數據
@@ -528,7 +521,10 @@ def export_orange_data_monthly(
 
     # 讀取指標數據（月資料）
     print("\n正在讀取指標數據...")
-    indicator_df = load_indicator_data()
+    indicator_df = load_indicator_data(db_manager, start_date=_to_yyyymmdd(start_ts), end_date=_to_yyyymmdd(end_ts))
+    if indicator_df.empty:
+        print("[Error] 無法讀取指標數據")
+        return None
     indicator_cols = [col for col in indicator_df.columns if col != 'indicator_date']
     print(f"  共讀取 {len(indicator_df)} 筆指標數據（從 {indicator_df['indicator_date'].min()} 至 {indicator_df['indicator_date'].max()}）")
 

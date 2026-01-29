@@ -420,13 +420,6 @@ def load_cycle_data():
     if not choice:
         choice = '2'
     
-    # 設定日期範圍
-    start_date = input("起始日期（YYYY-MM-DD，預設 2020-01-01）: ").strip()
-    start_date = start_date if start_date else '2020-01-01'
-    
-    end_date = input("結束日期（YYYY-MM-DD，預設今天）: ").strip()
-    end_date = end_date if end_date else datetime.now().strftime('%Y-%m-%d')
-    
     db_manager = DatabaseManager()
     
     try:
@@ -435,8 +428,8 @@ def load_cycle_data():
             csv_path = 'business_cycle/景氣指標與燈號.csv'
             collector = CycleDataCollector(csv_path)
             
-            print(f"\n處理日期範圍：{start_date} 至 {end_date}")
-            daily_df = collector.process_cycle_data(start_date, end_date)
+            print("\n匯入所有景氣燈號資料（不限制日期範圍）...")
+            daily_df = collector.process_cycle_data()
             
             if daily_df.empty:
                 print("[Error] 無法讀取景氣燈號資料")
@@ -450,12 +443,23 @@ def load_cycle_data():
             collector.save_cycle_data_to_db(db_manager)
             print("[Info] 景氣燈號資料已儲存到資料庫")
             
+            # 自動計算並儲存合併指標
+            print(f"\n計算並儲存合併總經指標...")
+            try:
+                indicator_collector = IndicatorDataCollector()
+                indicator_collector.calculate_and_save_merged_indicators(db_manager)
+                print("[Success] 合併總經指標計算並儲存完成")
+            except Exception as e:
+                print(f"[Warning] 合併總經指標計算失敗: {e}")
+                import traceback
+                traceback.print_exc()
+            
         elif choice == '2':
             # 一鍵匯入所有景氣指標資料
             print(f"\n{'='*60}")
             print("一鍵匯入所有景氣指標資料")
             print(f"{'='*60}")
-            print(f"處理日期範圍：{start_date} 至 {end_date}")
+            print("匯入所有資料（不限制日期範圍）...")
             
             # 初始化所有資料表
             print("\n[步驟 1] 初始化資料表...")
@@ -465,7 +469,7 @@ def load_cycle_data():
             print(f"\n[步驟 2] 匯入景氣燈號資料...")
             csv_path = 'business_cycle/景氣指標與燈號.csv'
             collector = CycleDataCollector(csv_path)
-            daily_df = collector.process_cycle_data(start_date, end_date)
+            daily_df = collector.process_cycle_data()
             if not daily_df.empty:
                 collector.save_cycle_data_to_db(db_manager)
                 print(f"[Success] 景氣燈號資料匯入成功，共 {len(daily_df)} 筆")
@@ -475,7 +479,7 @@ def load_cycle_data():
             # 匯入所有其他指標資料
             print(f"\n[步驟 3] 匯入其他景氣指標資料...")
             indicator_collector = IndicatorDataCollector()
-            results = indicator_collector.import_all_indicators(db_manager, start_date, end_date)
+            results = indicator_collector.import_all_indicators(db_manager)
             
             # 顯示匯入結果統計
             print(f"\n{'='*60}")
@@ -510,6 +514,16 @@ def load_cycle_data():
                     print(f"  - 月對月變化率：更新 {update_stats.get('mom_count', 0)} 筆")
                     print(f"  - 當月 vs 前三個月平均：更新 {update_stats.get('vs_3m_avg_count', 0)} 筆")
             
+            # 步驟 5：計算並儲存合併總經指標
+            print(f"\n[步驟 5] 計算並儲存合併總經指標...")
+            try:
+                indicator_collector.calculate_and_save_merged_indicators(db_manager)
+                print("[Success] 合併總經指標計算並儲存完成")
+            except Exception as e:
+                print(f"[Warning] 合併總經指標計算失敗: {e}")
+                import traceback
+                traceback.print_exc()
+            
         elif choice == '3':
             # 選擇性匯入
             print("\n可選擇的指標：")
@@ -534,20 +548,23 @@ def load_cycle_data():
             indicator_collector = IndicatorDataCollector()
             
             # 匯入選定的資料
+            indicators_imported = False
             for sel in selected_list:
                 if sel == '1':
                     # 景氣燈號資料
                     print(f"\n匯入景氣燈號資料...")
                     csv_path = 'business_cycle/景氣指標與燈號.csv'
                     collector = CycleDataCollector(csv_path)
-                    daily_df = collector.process_cycle_data(start_date, end_date)
+                    daily_df = collector.process_cycle_data()
                     if not daily_df.empty:
                         collector.save_cycle_data_to_db(db_manager)
                         print(f"[Success] 景氣燈號資料匯入成功，共 {len(daily_df)} 筆")
+                        indicators_imported = True
                 elif sel == '2':
-                    result = indicator_collector.import_single_indicator('領先指標構成項目.csv', db_manager, start_date, end_date)
+                    result = indicator_collector.import_single_indicator('領先指標構成項目.csv', db_manager)
                     if result.get('success'):
                         print(f"[Success] 領先指標匯入成功，共 {result.get('records', 0)} 筆")
+                        indicators_imported = True
                         # 匯入成功後，立即計算 M1B 年增率
                         print("\n計算 M1B 年增率...")
                         from data_collection.m1b_calculator import M1BCalculator
@@ -560,21 +577,36 @@ def load_cycle_data():
                             print(f"  - 月對月變化率：更新 {update_stats.get('mom_count', 0)} 筆")
                             print(f"  - 當月 vs 前三個月平均：更新 {update_stats.get('vs_3m_avg_count', 0)} 筆")
                 elif sel == '3':
-                    result = indicator_collector.import_single_indicator('同時指標構成項目.csv', db_manager, start_date, end_date)
+                    result = indicator_collector.import_single_indicator('同時指標構成項目.csv', db_manager)
                     if result.get('success'):
                         print(f"[Success] 同時指標匯入成功，共 {result.get('records', 0)} 筆")
+                        indicators_imported = True
                 elif sel == '4':
-                    result = indicator_collector.import_single_indicator('落後指標構成項目.csv', db_manager, start_date, end_date)
+                    result = indicator_collector.import_single_indicator('落後指標構成項目.csv', db_manager)
                     if result.get('success'):
                         print(f"[Success] 落後指標匯入成功，共 {result.get('records', 0)} 筆")
+                        indicators_imported = True
                 elif sel == '5':
-                    result = indicator_collector.import_single_indicator('景氣指標與燈號.csv', db_manager, start_date, end_date)
+                    result = indicator_collector.import_single_indicator('景氣指標與燈號.csv', db_manager)
                     if result.get('success'):
                         print(f"[Success] 綜合指標匯入成功，共 {result.get('records', 0)} 筆")
+                        indicators_imported = True
                 elif sel == '6':
-                    result = indicator_collector.import_single_indicator('景氣對策信號構成項目.csv', db_manager, start_date, end_date)
+                    result = indicator_collector.import_single_indicator('景氣對策信號構成項目.csv', db_manager)
                     if result.get('success'):
                         print(f"[Success] 景氣對策信號構成項目匯入成功，共 {result.get('records', 0)} 筆")
+                        indicators_imported = True
+            
+            # 如果匯入了任何指標，自動計算並儲存合併指標
+            if indicators_imported:
+                print(f"\n計算並儲存合併總經指標...")
+                try:
+                    indicator_collector.calculate_and_save_merged_indicators(db_manager)
+                    print("[Success] 合併總經指標計算並儲存完成")
+                except Exception as e:
+                    print(f"[Warning] 合併總經指標計算失敗: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         print("\n[Info] 所有資料匯入完成")
         
