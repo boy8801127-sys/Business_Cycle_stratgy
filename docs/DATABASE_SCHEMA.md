@@ -19,6 +19,7 @@
 9. [composite_indicators_data](#9-composite_indicators_data) - 景氣指標與燈號（綜合指標）
 10. [business_cycle_signal_components_data](#10-business_cycle_signal_components_data) - 景氣對策信號構成項目
 11. [market_margin_data](#11-market_margin_data) - 大盤融資維持率資料
+12. [etf_006208_monthly_future](#12-etf_006208_monthly_future) - 006208 月線與未來1月目標欄位
 
 ---
 
@@ -305,9 +306,9 @@
 
 ## 9. composite_indicators_data
 
-**說明**：儲存景氣指標與燈號綜合資料，從月資料轉換為交易日資料。包含領先、同時、落後指標的綜合指數。
+**說明**：儲存景氣指標與燈號綜合資料，從月資料轉換為交易日資料。包含領先、同時、落後指標的綜合指數，以及其衍伸指標（月對月變化、變化率、前1/2期、3/6月均）。欄位順序為**領先 → 同時 → 落後**。
 
-### 欄位說明
+### 欄位說明（基礎欄位）
 
 | 欄位名稱 | 資料型別 | 說明 | 範例 |
 |---------|---------|------|------|
@@ -321,6 +322,25 @@
 | business_cycle_score | REAL | 景氣對策信號綜合分數 | 28.0 |
 | business_cycle_signal | TEXT | 景氣對策信號（燈號顏色） | 綠燈 |
 | created_at | TIMESTAMP | 資料建立時間 | 2025-01-01 10:00:00 |
+
+### 衍伸欄位（依領先 → 同時 → 落後順序）
+
+對每個指數欄位 `X`（如 `leading_index`、`leading_index_no_trend` 等）會計算以下衍伸欄位，並依序排列於該指數之後：
+
+| 後綴 | 欄位範例 | 說明 |
+|------|----------|------|
+| _mom | leading_index_mom | 月對月變化（當月 − 前月） |
+| _pct | leading_index_pct | 變化率(%)：(當月 − 前月) / 前月 × 100 |
+| _lag1 | leading_index_lag1 | 前 1 期值 |
+| _lag2 | leading_index_lag2 | 前 2 期值 |
+| _ma3 | leading_index_ma3 | 近 3 期簡單平均 |
+| _ma6 | leading_index_ma6 | 近 6 期簡單平均 |
+
+- **領先**：`leading_index`、`leading_index_no_trend` 各 6 個衍伸（共 12 欄）
+- **同時**：`coincident_index`、`coincident_index_no_trend` 各 6 個衍伸（共 12 欄）
+- **落後**：`lagging_index`、`lagging_index_no_trend` 各 6 個衍伸（共 12 欄）
+
+中文別名可透過 `vw_composite_indicators_data` 檢視取得（如「領先指標綜合指數月對月變化」、「領先指標綜合指數變化率(%)」等）。
 
 ### 主鍵
 
@@ -339,6 +359,7 @@
 - 原始資料為月資料（YYYYMM），已轉換為交易日資料
 - 每個月的所有交易日都使用該月的指標數值
 - `business_cycle_score` 和 `business_cycle_signal` 與 `business_cycle_data` 表中的資料相同
+- 衍伸欄位由「選項 1 一鍵匯入」的步驟 3.5 或「選項 18 Orange Pipeline」的 Phase 2 步驟 1.5 計算並寫入
 - 部分欄位可能為 NULL（歷史資料缺失）
 
 ---
@@ -581,6 +602,42 @@ LIMIT 10;
 
 ---
 
+## 12. etf_006208_monthly_future
+
+**說明**：儲存富邦台50（006208）的月線 OHLCV、當月每日收盤的月均價／月中位數、三種未來1月報酬率及未來1月最高／最低價。由 `scripts/export_orange_data.py` 的月線匯出流程在產出月線 CSV 時一併寫入（若 tickers 含 006208）。用途為預測或回測時取得 006208 月線特徵與未來報酬／高低價目標。資料自 2013 年起（006208 成立於 2012/7）。
+
+### 欄位說明
+
+| 欄位名稱 | 資料型別 | 說明 |
+|---------|---------|------|
+| date | TEXT | 月末日期（YYYYMMDD，主鍵） |
+| open | REAL | 月線開盤價 |
+| high | REAL | 月線最高價 |
+| low | REAL | 月線最低價 |
+| close | REAL | 月線收盤價 |
+| volume | REAL | 月線成交量 |
+| turnover | REAL | 月線成交金額 |
+| close_avg_month | REAL | 當月每日收盤價的月均價（平均） |
+| close_median_month | REAL | 當月每日收盤價的月均價（中位數） |
+| future_return_1m | REAL | 未來1月報酬率(%)（收盤 vs 收盤） |
+| future_return_1m_avg | REAL | 未來1月報酬率(%)（平均 vs 平均） |
+| future_return_1m_median | REAL | 未來1月報酬率(%)（中位數 vs 中位數） |
+| future_high_1m | REAL | 下月最高價 |
+| future_low_1m | REAL | 下月最低價 |
+
+### 主鍵
+
+- `date` - 月末日期（YYYYMMDD）
+
+### 與月線匯出／006208 日線的關係
+
+- 月線 OHLCV 來自 `tw_stock_price_data` 中 006208 的日線依月 resample 彙總。
+- close_avg_month、close_median_month 由 006208 日線當月每日 close 的 mean／median 計算。
+- 未來欄位由當月與下月資料 shift(-1) 後計算；最後一筆的 future_* 為 NULL。
+- 月線 CSV 匯出時會一併更新本表（`if_exists='replace'`）。
+
+---
+
 ## 資料維護
 
 ### 資料更新
@@ -599,6 +656,7 @@ LIMIT 10;
 3. **上櫃股票**：使用 `main.py` 選項 2 從櫃買中心 API 收集
 4. **融資維持率**：使用 `main.py` 選項 13 從證交所 MI_MARGN API 收集
    - `market_margin_data` - 大盤融資維持率資料
+5. **VIX 月 K 線與衍生指標**：`VIX_data` 表由選項 14（下載並重新計算 VIX 月 K 線）寫入月 K 線；選項 15（計算 VIX 衍生指標）會依月 K 線計算衍生欄位（vix_change、vix_change_pct、vix_range、vix_range_pct、vix_mom、vix_close_lag1、vix_close_lag2、vix_ma3、vix_ma6）並寫回同表。**Orange 匯出**（選項 11 日線/月線）僅自 `VIX_data` 讀取（含衍生欄位），不在匯出時即時計算。
 
 ### 資料驗證
 

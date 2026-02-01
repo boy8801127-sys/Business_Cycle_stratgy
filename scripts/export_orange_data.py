@@ -73,6 +73,15 @@ def get_column_chinese_mapping():
         'return_12m': '12月報酬率(%)',
         'volume_ma3': '3月平均成交量',
         
+        # 月線參考與目標欄位
+        'ref_006208_close_avg_month': '006208月均價_平均',
+        'ref_006208_close_median_month': '006208月均價_中位數',
+        'future_return_1m': '未來1月報酬率(%)',
+        'future_return_1m_avg': '未來1月報酬率_平均(%)',
+        'future_return_1m_median': '未來1月報酬率_中位數(%)',
+        'future_high_1m': '未來1月最高價',
+        'future_low_1m': '未來1月最低價',
+        
         # 融資融券指標
         'short_margin_ratio': '券資比',
         'margin_balance_change_rate': '融資餘額變化率(%)',
@@ -149,6 +158,23 @@ def get_column_chinese_mapping():
         'signal_lagging_index_no_trend': '信號_落後指標不含趨勢指數',
         'signal_business_cycle_score': '信號_景氣對策信號綜合分數',
         'signal_business_cycle_signal': '信號_景氣對策信號(燈號顏色)',
+    })
+
+    # VIX（VIX_data 月 K 線及衍生指標，僅自資料庫讀取）
+    mapping.update({
+        'vix_open': 'VIX_開盤',
+        'vix_high': 'VIX_最高',
+        'vix_low': 'VIX_最低',
+        'vix_close': 'VIX_收盤',
+        'vix_change': 'VIX_當月開收差',
+        'vix_change_pct': 'VIX_當月開收變化率(%)',
+        'vix_range': 'VIX_當月振幅',
+        'vix_range_pct': 'VIX_當月振幅(%)',
+        'vix_mom': 'VIX_月對月收盤變化率(%)',
+        'vix_close_lag1': 'VIX_前1月收盤',
+        'vix_close_lag2': 'VIX_前2月收盤',
+        'vix_ma3': 'VIX_3月移動平均',
+        'vix_ma6': 'VIX_6月移動平均',
     })
     
     return mapping
@@ -229,6 +255,44 @@ def get_margin_for_date(target_date: pd.Timestamp, margin_df: pd.DataFrame):
         return before_dates.iloc[-1]
     
     return pd.Series(dtype=float)
+
+
+def load_vix_data(db_manager: DatabaseManager, start_date: Optional[str] = None, end_date: Optional[str] = None):
+    """
+    讀取 VIX_data 月 K 線（含衍生指標）。若表不存在則回傳空 DataFrame。
+    回傳欄位含 open, high, low, close 及衍生欄位；並新增 yyyymm 供對齊用。
+    """
+    if not db_manager.check_table_exists('VIX_data'):
+        return pd.DataFrame()
+    df = db_manager.get_vix_data(start_date=start_date, end_date=end_date)
+    if df.empty:
+        return pd.DataFrame()
+    df = df.copy()
+    df['yyyymm'] = df['tradeDate'].astype(str).str.strip().str[:6]
+    return df
+
+
+def get_vix_for_date(target_date: pd.Timestamp, vix_df: pd.DataFrame):
+    """
+    依目標日期的年月，取得對應當月的 VIX_data 一筆（當月一筆對齊該月每一天）。
+    回傳 Series，鍵為 vix_close, vix_open, vix_high, vix_low 及衍生欄位（若有）。
+    """
+    if vix_df.empty:
+        return pd.Series(dtype=float)
+    yyyymm = target_date.strftime('%Y%m')
+    match = vix_df[vix_df['yyyymm'] == yyyymm]
+    if match.empty:
+        return pd.Series(dtype=float)
+    row = match.iloc[0]
+    out = pd.Series(dtype=float)
+    for col in ['open', 'high', 'low', 'close']:
+        if col in row:
+            out[f'vix_{col}'] = row[col]
+    for col in ['vix_change', 'vix_change_pct', 'vix_range', 'vix_range_pct', 'vix_mom',
+                'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']:
+        if col in row:
+            out[col] = row[col]
+    return out
 
 
 def load_indicator_data(db_manager: Optional[DatabaseManager] = None, start_date: Optional[str] = None, end_date: Optional[str] = None):
@@ -477,6 +541,16 @@ def export_orange_data_daily(
     else:
         print(f"  共讀取 {len(margin_df)} 筆融資維持率數據（從 {margin_df['date'].min()} 至 {margin_df['date'].max()}）")
 
+    # 讀取 VIX_data（月 K 線 + 衍生指標），依當月對齊該月每一天
+    print("\n正在讀取 VIX 數據...")
+    vix_start_yyyymm = (start_ts.replace(day=1) - pd.DateOffset(months=1)).strftime('%Y%m')
+    vix_end_yyyymm = end_ts.strftime('%Y%m')
+    vix_df = load_vix_data(db_manager, start_date=vix_start_yyyymm, end_date=vix_end_yyyymm)
+    if vix_df.empty:
+        print("  [Warning] 沒有找到 VIX_data 或表不存在")
+    else:
+        print(f"  共讀取 {len(vix_df)} 筆 VIX 月 K 線（從 {vix_df['yyyymm'].min()} 至 {vix_df['yyyymm'].max()}）")
+
     # 合併數據：為每個股價日期添加對應的指標數據（n-2個月）
     print("\n正在合併數據（指標對齊：n-2個月）...")
     result_rows = []
@@ -496,6 +570,8 @@ def export_orange_data_daily(
         
         # 取得融資維持率數據
         margin_row = get_margin_for_date(target_date, margin_df) if not margin_df.empty else pd.Series(dtype=float)
+        # 取得 VIX 數據（當月一筆對齊該月每一天）
+        vix_row = get_vix_for_date(target_date, vix_df) if not vix_df.empty else pd.Series(dtype=float)
 
         result_row = {
             'date': target_date.strftime('%Y-%m-%d'),
@@ -505,6 +581,12 @@ def export_orange_data_daily(
 
         for col in indicator_cols:
             result_row[col] = indicator_row.get(col, None)
+
+        # 添加 VIX 欄位（僅自資料庫讀取，不在此計算）
+        vix_cols = ['vix_open', 'vix_high', 'vix_low', 'vix_close', 'vix_change', 'vix_change_pct',
+                    'vix_range', 'vix_range_pct', 'vix_mom', 'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']
+        for col in vix_cols:
+            result_row[col] = vix_row.get(col, None) if not vix_row.empty else None
         
         # 添加融資融券衍生指標欄位
         margin_derived_cols = [
@@ -555,13 +637,16 @@ def export_orange_data_daily(
     
     result_df = result_df.drop(columns=['date_dt'])
 
-    # 確保欄位順序：date, ticker, close, 然後是指標欄位，最後是融資融券衍生指標
+    # 確保欄位順序：date, ticker, close, 指標, VIX, 融資融券衍生指標
+    vix_cols_order = [c for c in ['vix_open', 'vix_high', 'vix_low', 'vix_close', 'vix_change', 'vix_change_pct',
+                                   'vix_range', 'vix_range_pct', 'vix_mom', 'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']
+                      if c in result_df.columns]
     margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
                   [f'{col}_lag2' for col in margin_derived_cols] + \
                   [f'{col}_change' for col in margin_derived_cols]
     margin_cols = [col for col in margin_cols if col in result_df.columns]
-    column_order = ['date', 'ticker', 'close'] + indicator_cols + margin_cols
-    result_df = result_df[column_order]
+    column_order = ['date', 'ticker', 'close'] + indicator_cols + vix_cols_order + margin_cols
+    result_df = result_df[[c for c in column_order if c in result_df.columns]]
 
     # 特徵工程：添加日報酬率和時間特徵
     print("\n正在計算特徵工程...")
@@ -606,12 +691,15 @@ def export_orange_data_daily(
         'short_buy_sell_ratio',
         'short_buy_sell_net'
     ]
+    vix_cols_final = [c for c in ['vix_open', 'vix_high', 'vix_low', 'vix_close', 'vix_change', 'vix_change_pct',
+                                   'vix_range', 'vix_range_pct', 'vix_mom', 'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']
+                      if c in result_df.columns]
     margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
                   [f'{col}_lag2' for col in margin_derived_cols] + \
                   [f'{col}_change' for col in margin_derived_cols]
     margin_cols = [col for col in margin_cols if col in result_df.columns]
-    column_order = ['date', 'ticker', 'close', 'daily_return', 'cumulative_return'] + time_features + indicator_cols + margin_cols
-    result_df = result_df[column_order]
+    column_order = ['date', 'ticker', 'close', 'daily_return', 'cumulative_return'] + time_features + indicator_cols + vix_cols_final + margin_cols
+    result_df = result_df[[c for c in column_order if c in result_df.columns]]
 
     # 將欄位名稱轉換為中文
     print("\n正在轉換欄位名稱為中文...")
@@ -642,6 +730,28 @@ def _first_valid(s: pd.Series):
 def _last_valid(s: pd.Series):
     s2 = s.dropna()
     return s2.iloc[-1] if len(s2) else np.nan
+
+
+def _min_exclude_zero(s: pd.Series):
+    """當月最低價：排除 0 後取 min（若全為 0 或缺失則 NaN）"""
+    s2 = s.replace(0, np.nan)
+    return s2.min() if s2.notna().any() else np.nan
+
+
+def _max_exclude_zero(s: pd.Series):
+    """當月最高價：排除 0 後取 max（若全為 0 或缺失則 NaN）"""
+    s2 = s.replace(0, np.nan)
+    return s2.max() if s2.notna().any() else np.nan
+
+
+def _first_valid_exclude_zero(s: pd.Series):
+    """當月開盤價：第一個有效（非 0）開盤價，若當天沒開張則往後一天找"""
+    return _first_valid(s.replace(0, np.nan))
+
+
+def _last_valid_exclude_zero(s: pd.Series):
+    """當月收盤價：最後一個有效（非 0）收盤價，若當天沒開張則往前一天找"""
+    return _last_valid(s.replace(0, np.nan))
 
 
 def export_orange_data_monthly(
@@ -690,10 +800,10 @@ def export_orange_data_monthly(
         g = g.sort_values('date').set_index('date')
         # pandas 新版建議用 'ME'（month end）取代 'M'
         monthly = g.resample('ME').agg({
-            'open': _first_valid,
-            'high': 'max',
-            'low': 'min',
-            'close': _last_valid,
+            'open': _first_valid_exclude_zero,
+            'high': _max_exclude_zero,
+            'low': _min_exclude_zero,
+            'close': _last_valid_exclude_zero,
             'volume': 'sum',
             'turnover': 'sum'
         })
@@ -709,6 +819,16 @@ def export_orange_data_monthly(
     monthly_df = pd.concat(monthly_list, ignore_index=True)
     monthly_df = monthly_df.sort_values(['date', 'ticker']).reset_index(drop=True)
     print(f"  產生 {len(monthly_df)} 筆月線資料")
+
+    # 006208 當月每日收盤價的月均價(平均)與月均價(中位數)，供 CSV 參考欄位與 etf_006208_monthly_future 使用
+    ref_006208 = pd.DataFrame()
+    if '006208' in tickers:
+        df_006208_daily = stock_data[stock_data['ticker'] == '006208'].copy()
+        if not df_006208_daily.empty:
+            df_006208_daily = df_006208_daily.set_index('date').sort_index()
+            df_006208_daily.index = pd.to_datetime(df_006208_daily.index)
+            ref_006208 = df_006208_daily['close'].resample('ME').agg(['mean', 'median'])
+            ref_006208.columns = ['close_avg_month', 'close_median_month']
 
     # 讀取指標數據（月資料）
     print("\n正在讀取指標數據...")
@@ -744,6 +864,16 @@ def export_orange_data_monthly(
         end_date=_to_yyyymmdd(end_ts)
     )
 
+    # 讀取 VIX_data（月 K 線 + 衍生指標），依月份對齊
+    print("\n正在讀取 VIX 數據...")
+    vix_start_yyyymm = (start_ts.replace(day=1) - pd.DateOffset(months=1)).strftime('%Y%m')
+    vix_end_yyyymm = end_ts.strftime('%Y%m')
+    vix_df = load_vix_data(db_manager, start_date=vix_start_yyyymm, end_date=vix_end_yyyymm)
+    if vix_df.empty:
+        print("  [Warning] 沒有找到 VIX_data 或表不存在")
+    else:
+        print(f"  共讀取 {len(vix_df)} 筆 VIX 月 K 線")
+
     print("\n正在合併月線與指標（指標對齊：n-2個月）...")
     out_rows = []
     for _, row in monthly_df.iterrows():
@@ -764,6 +894,14 @@ def export_orange_data_monthly(
             ]
             if not tech_match.empty:
                 tech_row = tech_match.iloc[0]
+
+        # 取得 VIX 數據（當月一筆）
+        vix_row = pd.Series(dtype=float)
+        if not vix_df.empty:
+            yyyymm = month_end.strftime('%Y%m')
+            vix_match = vix_df[vix_df['yyyymm'] == yyyymm]
+            if not vix_match.empty:
+                vix_row = get_vix_for_date(month_end, vix_df)
 
         out_row = {
             'date': month_end.strftime('%Y-%m-%d'),  # 月末標籤
@@ -789,6 +927,12 @@ def export_orange_data_monthly(
                 out_row[col] = tech_row.get(col, None)
             else:
                 out_row[col] = None
+
+        # 添加 VIX 欄位（僅自資料庫讀取）
+        vix_columns = ['vix_open', 'vix_high', 'vix_low', 'vix_close', 'vix_change', 'vix_change_pct',
+                       'vix_range', 'vix_range_pct', 'vix_mom', 'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']
+        for col in vix_columns:
+            out_row[col] = vix_row.get(col, None) if not vix_row.empty else None
         
         # 添加總經指標欄位（n-2個月時序移動）
         for col in indicator_cols:
@@ -812,10 +956,28 @@ def export_orange_data_monthly(
                 out_row[col] = margin_row.get(col, None)
             else:
                 out_row[col] = None
+
+        # 006208 當月月均價(平均)與月中位數，每一列都帶上該月 006208 的參考值
+        if not ref_006208.empty and month_end in ref_006208.index:
+            out_row['ref_006208_close_avg_month'] = ref_006208.loc[month_end, 'close_avg_month']
+            out_row['ref_006208_close_median_month'] = ref_006208.loc[month_end, 'close_median_month']
+        else:
+            out_row['ref_006208_close_avg_month'] = None
+            out_row['ref_006208_close_median_month'] = None
         
         out_rows.append(out_row)
 
     out_df = pd.DataFrame(out_rows)
+    out_df = out_df.sort_values(['ticker', 'date']).reset_index(drop=True)
+
+    # 未來1月報酬率、最高價、最低價（依 ticker 分組，shift(-1) 取得下月資料）
+    out_df['_next_close'] = out_df.groupby('ticker')['close'].shift(-1)
+    out_df['_next_high'] = out_df.groupby('ticker')['high'].shift(-1)
+    out_df['_next_low'] = out_df.groupby('ticker')['low'].shift(-1)
+    out_df['future_return_1m'] = (out_df['_next_close'] - out_df['close']) / out_df['close'] * 100
+    out_df['future_high_1m'] = out_df['_next_high']
+    out_df['future_low_1m'] = out_df['_next_low']
+    out_df = out_df.drop(columns=['_next_close', '_next_high', '_next_low'], errors='ignore')
     
     # 添加融資融券衍生指標相關特徵（滯後值和變化率）
     margin_derived_cols = [
@@ -849,6 +1011,58 @@ def export_orange_data_monthly(
             # 再後向填充（從下往上填充，處理開頭的NaN）
             out_df[col] = out_df.groupby('ticker')[col].bfill()
     
+    # 輸出從 2013 年起（006208 成立於 2012/7，避免早期資料不完整）
+    out_df['_date_parsed'] = pd.to_datetime(out_df['date'], errors='coerce')
+    out_df = out_df[out_df['_date_parsed'].dt.year >= 2013].drop(columns=['_date_parsed'])
+    out_df = out_df.reset_index(drop=True)
+    
+    # 寫入新資料表 etf_006208_monthly_future（僅當 tickers 含 006208 且有 006208 月均價）
+    if '006208' in tickers and not ref_006208.empty:
+        ref_006208_reset = ref_006208.reset_index()
+        ref_006208_reset.columns = ['date', 'close_avg_month', 'close_median_month']
+        df_006208 = monthly_df[monthly_df['ticker'] == '006208'].copy()
+        df_006208 = df_006208.merge(ref_006208_reset, on='date', how='left')
+        df_006208 = df_006208.sort_values('date').reset_index(drop=True)
+        df_006208['next_close'] = df_006208['close'].shift(-1)
+        df_006208['next_high'] = df_006208['high'].shift(-1)
+        df_006208['next_low'] = df_006208['low'].shift(-1)
+        df_006208['next_close_avg_month'] = df_006208['close_avg_month'].shift(-1)
+        df_006208['next_close_median_month'] = df_006208['close_median_month'].shift(-1)
+        df_006208['future_return_1m'] = (df_006208['next_close'] - df_006208['close']) / df_006208['close'] * 100
+        df_006208['future_return_1m_avg'] = (
+            (df_006208['next_close_avg_month'] - df_006208['close_avg_month'])
+            / df_006208['close_avg_month'].replace(0, np.nan) * 100
+        )
+        df_006208['future_return_1m_median'] = (
+            (df_006208['next_close_median_month'] - df_006208['close_median_month'])
+            / df_006208['close_median_month'].replace(0, np.nan) * 100
+        )
+        df_006208['future_high_1m'] = df_006208['next_high']
+        df_006208['future_low_1m'] = df_006208['next_low']
+        # 建立月末日期字串對照（與 out_df['date'] 格式一致），回填月線 CSV 的兩欄
+        df_006208['_date_str'] = pd.to_datetime(df_006208['date'], errors='coerce').dt.strftime('%Y-%m-%d')
+        lookup_avg = df_006208.set_index('_date_str')['future_return_1m_avg']
+        lookup_median = df_006208.set_index('_date_str')['future_return_1m_median']
+        out_df['future_return_1m_avg'] = out_df['date'].map(lookup_avg)
+        out_df['future_return_1m_median'] = out_df['date'].map(lookup_median)
+        df_future = df_006208[[
+            'date', 'open', 'high', 'low', 'close', 'volume', 'turnover',
+            'close_avg_month', 'close_median_month',
+            'future_return_1m', 'future_return_1m_avg', 'future_return_1m_median',
+            'future_high_1m', 'future_low_1m'
+        ]].copy()
+        df_future = df_future[pd.to_datetime(df_future['date'], errors='coerce').dt.year >= 2013]
+        df_future['date'] = pd.to_datetime(df_future['date'], errors='coerce').dt.strftime('%Y%m%d')
+        # 第二道防線：寫入表前將價格欄位 0 改為 NaN，避免殘留 0 寫入表內
+        price_cols = ['open', 'high', 'low', 'close', 'close_avg_month', 'close_median_month', 'future_high_1m', 'future_low_1m']
+        for c in price_cols:
+            if c in df_future.columns:
+                df_future[c] = df_future[c].replace(0, np.nan)
+        db_manager.ensure_etf_006208_monthly_future_table()
+        db_manager.save_dataframe(df_future, 'etf_006208_monthly_future', if_exists='replace')
+    
+    ref_006208_cols = ['ref_006208_close_avg_month', 'ref_006208_close_median_month']
+    future_cols = ['future_return_1m', 'future_return_1m_avg', 'future_return_1m_median', 'future_high_1m', 'future_low_1m']
     base_cols = ['date', 'ticker', 'open', 'high', 'low', 'close', 'volume', 'turnover']
     tech_columns = [
         'ma3', 'ma6', 'ma12',
@@ -858,11 +1072,16 @@ def export_orange_data_monthly(
         'rsi', 'volume_ma3', 'volume_ratio'
     ]
     tech_cols = [col for col in tech_columns if col in out_df.columns]
+    vix_cols_monthly = [c for c in ['vix_open', 'vix_high', 'vix_low', 'vix_close', 'vix_change', 'vix_change_pct',
+                                     'vix_range', 'vix_range_pct', 'vix_mom', 'vix_close_lag1', 'vix_close_lag2', 'vix_ma3', 'vix_ma6']
+                        if c in out_df.columns]
     margin_cols = margin_derived_cols + [f'{col}_lag1' for col in margin_derived_cols] + \
                   [f'{col}_lag2' for col in margin_derived_cols] + \
                   [f'{col}_change' for col in margin_derived_cols]
     margin_cols = [col for col in margin_cols if col in out_df.columns]
-    out_df = out_df[base_cols + tech_cols + indicator_cols + margin_cols]
+    ref_006208_cols_f = [c for c in ref_006208_cols if c in out_df.columns]
+    future_cols_f = [c for c in future_cols if c in out_df.columns]
+    out_df = out_df[base_cols + tech_cols + indicator_cols + vix_cols_monthly + margin_cols + ref_006208_cols_f + future_cols_f]
 
     # 將欄位名稱轉換為中文
     print("\n正在轉換欄位名稱為中文...")

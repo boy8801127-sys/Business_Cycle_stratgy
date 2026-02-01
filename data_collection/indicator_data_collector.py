@@ -4,6 +4,7 @@
 """
 
 import pandas as pd
+import numpy as np
 import pandas_market_calendars as pmc
 from datetime import datetime
 import os
@@ -330,6 +331,65 @@ class IndicatorDataCollector:
         
         return results
     
+    def calculate_and_save_composite_derived_indicators(self, db_manager):
+        """
+        計算領先、同時、落後指標綜合指數的衍伸指標（月對月變化、變化率、前1/2期、3/6月均），
+        寫回 composite_indicators_data，欄位順序為領先→同時→落後。
+        """
+        print("\n[Info] 開始計算綜合指標衍伸...")
+        try:
+            df = db_manager.execute_query_dataframe(
+                "SELECT * FROM composite_indicators_data ORDER BY date"
+            )
+            if df.empty:
+                print("[Warning] composite_indicators_data 為空，跳過衍伸計算")
+                return
+            base_cols = [
+                'leading_index', 'leading_index_no_trend',
+                'coincident_index', 'coincident_index_no_trend',
+                'lagging_index', 'lagging_index_no_trend',
+            ]
+            for col in base_cols:
+                if col not in df.columns:
+                    continue
+                prev = df[col].shift(1)
+                df[f'{col}_mom'] = df[col] - prev
+                df[f'{col}_pct'] = np.where(
+                    pd.notna(prev) & (prev != 0),
+                    (df[col] - prev) / prev * 100,
+                    np.nan
+                )
+                df[f'{col}_lag1'] = df[col].shift(1)
+                df[f'{col}_lag2'] = df[col].shift(2)
+                df[f'{col}_ma3'] = df[col].rolling(3, min_periods=1).mean()
+                df[f'{col}_ma6'] = df[col].rolling(6, min_periods=1).mean()
+            # 欄位順序：date → 領先(基礎+衍伸) → 同時(基礎+衍伸) → 落後(基礎+衍伸) → 燈號 → created_at
+            def ordered_index_cols(prefix):
+                base = [f'{prefix}_index', f'{prefix}_index_no_trend']
+                derived = ['_mom', '_pct', '_lag1', '_lag2', '_ma3', '_ma6']
+                out = []
+                for b in base:
+                    if b in df.columns:
+                        out.append(b)
+                    for d in derived:
+                        c = b + d
+                        if c in df.columns:
+                            out.append(c)
+                return out
+            leading = ordered_index_cols('leading')
+            coincident = ordered_index_cols('coincident')
+            lagging = ordered_index_cols('lagging')
+            others = [c for c in df.columns if c not in leading + coincident + lagging and c != 'date']
+            order = ['date'] + leading + coincident + lagging + others
+            df = df[order]
+            db_manager.save_dataframe(df, 'composite_indicators_data', if_exists='replace')
+            print(f"[Success] 綜合指標衍伸已寫入 composite_indicators_data，共 {len(df)} 筆")
+        except Exception as e:
+            print(f"[Error] 綜合指標衍伸計算失敗: {e}")
+            import traceback
+            traceback.print_exc()
+            raise
+
     def calculate_and_save_merged_indicators(self, db_manager):
         """
         計算並儲存合併後的總經指標到 merged_economic_indicators 表

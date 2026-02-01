@@ -259,6 +259,51 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def ensure_vix_data_derivative_columns(self):
+        """
+        確保 VIX_data 表存在且包含衍生指標欄位；若表不存在則不動作。
+        衍生欄位：vix_change, vix_change_pct, vix_range, vix_range_pct, vix_mom,
+                 vix_close_lag1, vix_close_lag2, vix_ma3, vix_ma6
+        """
+        if not self.check_table_exists('VIX_data'):
+            return
+        for col, definition in [
+            ('vix_change', 'REAL'),
+            ('vix_change_pct', 'REAL'),
+            ('vix_range', 'REAL'),
+            ('vix_range_pct', 'REAL'),
+            ('vix_mom', 'REAL'),
+            ('vix_close_lag1', 'REAL'),
+            ('vix_close_lag2', 'REAL'),
+            ('vix_ma3', 'REAL'),
+            ('vix_ma6', 'REAL'),
+        ]:
+            self.ensure_table_column('VIX_data', col, definition)
+    
+    def get_vix_data(self, start_date=None, end_date=None):
+        """
+        取得 VIX_data 月 K 線（含衍生指標）。
+        start_date / end_date 為 YYYYMMDD 或 YYYYMM，依 tradeDate 過濾。
+        """
+        if not self.check_table_exists('VIX_data'):
+            return pd.DataFrame()
+        s = str(start_date).strip() if start_date else None
+        e = str(end_date).strip() if end_date else None
+        if s and len(s) == 6:
+            s = s + '01'
+        if e and len(e) == 6:
+            e = e + '31'
+        query = "SELECT * FROM VIX_data WHERE 1=1"
+        params = []
+        if s:
+            query += " AND tradeDate >= ?"
+            params.append(s)
+        if e:
+            query += " AND tradeDate <= ?"
+            params.append(e)
+        query += " ORDER BY tradeDate"
+        return self.execute_query_dataframe(query, params if params else None)
+    
     def init_price_indices_table(self):
         """
         初始化價格指數資料表（tw_price_indices_data）
@@ -1012,6 +1057,40 @@ class DatabaseManager:
         finally:
             conn.close()
     
+    def ensure_etf_006208_monthly_future_table(self):
+        """
+        確保 etf_006208_monthly_future 資料表存在。
+        儲存 006208 月線 OHLCV、月均價/月中位數、三種未來1月報酬率、未來1月最高/最低價。
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS etf_006208_monthly_future (
+                    date TEXT NOT NULL PRIMARY KEY,
+                    open REAL,
+                    high REAL,
+                    low REAL,
+                    close REAL,
+                    volume REAL,
+                    turnover REAL,
+                    close_avg_month REAL,
+                    close_median_month REAL,
+                    future_return_1m REAL,
+                    future_return_1m_avg REAL,
+                    future_return_1m_median REAL,
+                    future_high_1m REAL,
+                    future_low_1m REAL
+                )
+            ''')
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[Error] ensure_etf_006208_monthly_future_table 失敗: {e}")
+            raise
+        finally:
+            conn.close()
+    
     def create_chinese_views(self):
         """
         為所有資料表建立中文別名 VIEW
@@ -1238,42 +1317,71 @@ class DatabaseManager:
                 ''')
             print("[Info] 已建立: vw_lagging_indicators_data")
             
-            # 9. vw_composite_indicators_data - 景氣指標與燈號（綜合指標）
+            # 9. vw_composite_indicators_data - 景氣指標與燈號（綜合指標），領先→同時→落後順序含衍伸
+            COMPOSITE_INDICATORS_CN_MAP = {
+                'date': '日期',
+                'leading_index': '領先指標綜合指數',
+                'leading_index_mom': '領先指標綜合指數月對月變化',
+                'leading_index_pct': '領先指標綜合指數變化率(%)',
+                'leading_index_lag1': '領先指標綜合指數前1期',
+                'leading_index_lag2': '領先指標綜合指數前2期',
+                'leading_index_ma3': '領先指標綜合指數3月均',
+                'leading_index_ma6': '領先指標綜合指數6月均',
+                'leading_index_no_trend': '領先指標不含趨勢指數',
+                'leading_index_no_trend_mom': '領先指標不含趨勢指數月對月變化',
+                'leading_index_no_trend_pct': '領先指標不含趨勢指數變化率(%)',
+                'leading_index_no_trend_lag1': '領先指標不含趨勢指數前1期',
+                'leading_index_no_trend_lag2': '領先指標不含趨勢指數前2期',
+                'leading_index_no_trend_ma3': '領先指標不含趨勢指數3月均',
+                'leading_index_no_trend_ma6': '領先指標不含趨勢指數6月均',
+                'coincident_index': '同時指標綜合指數',
+                'coincident_index_mom': '同時指標綜合指數月對月變化',
+                'coincident_index_pct': '同時指標綜合指數變化率(%)',
+                'coincident_index_lag1': '同時指標綜合指數前1期',
+                'coincident_index_lag2': '同時指標綜合指數前2期',
+                'coincident_index_ma3': '同時指標綜合指數3月均',
+                'coincident_index_ma6': '同時指標綜合指數6月均',
+                'coincident_index_no_trend': '同時指標不含趨勢指數',
+                'coincident_index_no_trend_mom': '同時指標不含趨勢指數月對月變化',
+                'coincident_index_no_trend_pct': '同時指標不含趨勢指數變化率(%)',
+                'coincident_index_no_trend_lag1': '同時指標不含趨勢指數前1期',
+                'coincident_index_no_trend_lag2': '同時指標不含趨勢指數前2期',
+                'coincident_index_no_trend_ma3': '同時指標不含趨勢指數3月均',
+                'coincident_index_no_trend_ma6': '同時指標不含趨勢指數6月均',
+                'lagging_index': '落後指標綜合指數',
+                'lagging_index_mom': '落後指標綜合指數月對月變化',
+                'lagging_index_pct': '落後指標綜合指數變化率(%)',
+                'lagging_index_lag1': '落後指標綜合指數前1期',
+                'lagging_index_lag2': '落後指標綜合指數前2期',
+                'lagging_index_ma3': '落後指標綜合指數3月均',
+                'lagging_index_ma6': '落後指標綜合指數6月均',
+                'lagging_index_no_trend': '落後指標不含趨勢指數',
+                'lagging_index_no_trend_mom': '落後指標不含趨勢指數月對月變化',
+                'lagging_index_no_trend_pct': '落後指標不含趨勢指數變化率(%)',
+                'lagging_index_no_trend_lag1': '落後指標不含趨勢指數前1期',
+                'lagging_index_no_trend_lag2': '落後指標不含趨勢指數前2期',
+                'lagging_index_no_trend_ma3': '落後指標不含趨勢指數3月均',
+                'lagging_index_no_trend_ma6': '落後指標不含趨勢指數6月均',
+                'business_cycle_score': '景氣對策信號綜合分數',
+                'business_cycle_signal': '景氣對策信號(燈號顏色)',
+                'created_at': '資料建立時間',
+            }
             cursor.execute("DROP VIEW IF EXISTS vw_composite_indicators_data")
             cursor.execute("PRAGMA table_info(composite_indicators_data)")
-            columns = [col[1] for col in cursor.fetchall()]
-            has_created_at = 'created_at' in columns
-            if has_created_at:
-                cursor.execute('''
-                    CREATE VIEW vw_composite_indicators_data AS
-                    SELECT 
-                        date AS '日期',
-                        leading_index AS '領先指標綜合指數',
-                        leading_index_no_trend AS '領先指標不含趨勢指數',
-                        coincident_index AS '同時指標綜合指數',
-                        coincident_index_no_trend AS '同時指標不含趨勢指數',
-                        lagging_index AS '落後指標綜合指數',
-                        lagging_index_no_trend AS '落後指標不含趨勢指數',
-                        business_cycle_score AS '景氣對策信號綜合分數',
-                        business_cycle_signal AS '景氣對策信號(燈號顏色)',
-                        created_at AS '資料建立時間'
-                    FROM composite_indicators_data
-                ''')
-            else:
-                cursor.execute('''
-                    CREATE VIEW vw_composite_indicators_data AS
-                    SELECT 
-                        date AS '日期',
-                        leading_index AS '領先指標綜合指數',
-                        leading_index_no_trend AS '領先指標不含趨勢指數',
-                        coincident_index AS '同時指標綜合指數',
-                        coincident_index_no_trend AS '同時指標不含趨勢指數',
-                        lagging_index AS '落後指標綜合指數',
-                        lagging_index_no_trend AS '落後指標不含趨勢指數',
-                        business_cycle_score AS '景氣對策信號綜合分數',
-                        business_cycle_signal AS '景氣對策信號(燈號顏色)'
-                    FROM composite_indicators_data
-                ''')
+            composite_columns = [col[1] for col in cursor.fetchall()]
+            composite_order = (
+                ['date']
+                + [c for c in ['leading_index', 'leading_index_mom', 'leading_index_pct', 'leading_index_lag1', 'leading_index_lag2', 'leading_index_ma3', 'leading_index_ma6',
+                              'leading_index_no_trend', 'leading_index_no_trend_mom', 'leading_index_no_trend_pct', 'leading_index_no_trend_lag1', 'leading_index_no_trend_lag2', 'leading_index_no_trend_ma3', 'leading_index_no_trend_ma6'] if c in composite_columns]
+                + [c for c in ['coincident_index', 'coincident_index_mom', 'coincident_index_pct', 'coincident_index_lag1', 'coincident_index_lag2', 'coincident_index_ma3', 'coincident_index_ma6',
+                              'coincident_index_no_trend', 'coincident_index_no_trend_mom', 'coincident_index_no_trend_pct', 'coincident_index_no_trend_lag1', 'coincident_index_no_trend_lag2', 'coincident_index_no_trend_ma3', 'coincident_index_no_trend_ma6'] if c in composite_columns]
+                + [c for c in ['lagging_index', 'lagging_index_mom', 'lagging_index_pct', 'lagging_index_lag1', 'lagging_index_lag2', 'lagging_index_ma3', 'lagging_index_ma6',
+                              'lagging_index_no_trend', 'lagging_index_no_trend_mom', 'lagging_index_no_trend_pct', 'lagging_index_no_trend_lag1', 'lagging_index_no_trend_lag2', 'lagging_index_no_trend_ma3', 'lagging_index_no_trend_ma6'] if c in composite_columns]
+                + [c for c in ['business_cycle_score', 'business_cycle_signal', 'created_at'] if c in composite_columns]
+            )
+            composite_select = [f"{c} AS '{COMPOSITE_INDICATORS_CN_MAP[c]}'" for c in composite_order if c in COMPOSITE_INDICATORS_CN_MAP]
+            view_sql = f"CREATE VIEW vw_composite_indicators_data AS SELECT {', '.join(composite_select)} FROM composite_indicators_data"
+            cursor.execute(view_sql)
             print("[Info] 已建立: vw_composite_indicators_data")
             
             # 10. vw_business_cycle_signal_components_data - 景氣對策信號構成項目

@@ -379,6 +379,11 @@ from backtesting.strategy import (
 )
 from data_validation.price_validator import PriceValidator
 
+try:
+    from scripts.run_orange_pipeline import run_with_options as run_orange_pipeline_with_options
+except ImportError:
+    run_orange_pipeline_with_options = None
+
 
 def print_menu():
     """顯示主選單"""
@@ -400,8 +405,10 @@ def print_menu():
     print("12. 執行回測（新系統，基於 Orange 資料）")
     print("13. 收集融資融券數據（2015-2025年）")
     print("14. 下載並重新計算VIX月K線（自動偵測當月缺失日期）")
-    print("15. 建立中文別名 VIEW（為所有資料表建立中文欄位名稱視圖）")
-    print("16. 計算技術指標（日線/月線）")
+    print("15. 計算 VIX 衍生指標（寫入 VIX_data 表）")
+    print("16. 建立中文別名 VIEW（為所有資料表建立中文欄位名稱視圖）")
+    print("17. 計算技術指標（日線/月線）")
+    print("18. Orange 一鍵 Pipeline（蒐集→衍生→匯出）")
     print("0. 離開")
     print("="*60)
 
@@ -494,6 +501,16 @@ def load_cycle_data():
                     print(f"  ✓ {csv_name}: {result.get('records', 0)} 筆")
                 else:
                     print(f"  ✗ {csv_name}: {result.get('error', '未知錯誤')}")
+            
+            # 步驟 3.5：計算綜合指標衍伸並寫入 composite_indicators_data
+            print(f"\n[步驟 3.5] 計算綜合指標衍伸...")
+            try:
+                indicator_collector.calculate_and_save_composite_derived_indicators(db_manager)
+                print("[Success] 綜合指標衍伸已寫入 composite_indicators_data")
+            except Exception as e:
+                print(f"[Warning] 綜合指標衍伸計算失敗: {e}")
+                import traceback
+                traceback.print_exc()
             
             # 計算 M1B 年增率（如果匯入了領先指標）
             leading_indicators_imported = False
@@ -2080,9 +2097,24 @@ def collect_margin_data():
         traceback.print_exc()
 
 
+def compute_vix_derivatives():
+    """選項 15：計算 VIX 衍生指標並寫入 VIX_data"""
+    print("\n[選項 15] 計算 VIX 衍生指標")
+    print("-" * 60)
+    try:
+        from data_collection.vix_derivatives import compute_and_save_vix_derivatives
+        db_manager = DatabaseManager()
+        compute_and_save_vix_derivatives(db_manager=db_manager)
+        print("\n[完成] VIX 衍生指標已寫入 VIX_data")
+    except Exception as e:
+        print(f"[Error] 計算 VIX 衍生指標失敗: {e}")
+        import traceback
+        traceback.print_exc()
+
+
 def create_chinese_views():
-    """選項 15：建立中文別名 VIEW"""
-    print("\n[選項 15] 建立中文別名 VIEW")
+    """選項 16：建立中文別名 VIEW"""
+    print("\n[選項 16] 建立中文別名 VIEW")
     print("-" * 60)
     print("此功能會為所有資料表建立 VIEW，使用中文欄位名稱")
     print("建立後可使用中文欄位名稱進行查詢，例如：")
@@ -2422,6 +2454,12 @@ def download_and_recalculate_vix_monthly():
             success = update_vix_data_monthly_kline(year_month, kline_data, db_manager)
             if success:
                 print(f"[Info] {year_month} 月的月K線已更新完成")
+                # 步驟6：重新計算 VIX 衍生指標並寫回 VIX_data（全表）
+                try:
+                    from data_collection.vix_derivatives import compute_and_save_vix_derivatives
+                    compute_and_save_vix_derivatives(db_manager=db_manager)
+                except Exception as ex:
+                    print(f"[Warning] VIX 衍生指標更新跳過: {ex}")
             else:
                 print(f"[Error] {year_month} 月的月K線更新失敗")
         else:
@@ -2520,12 +2558,45 @@ def validate_data():
                     print(f"    - {error}")
 
 
+def run_orange_pipeline_menu():
+    """選項 18：Orange 一鍵 Pipeline（蒐集→衍生→匯出）"""
+    print("\n[選項 18] Orange 一鍵 Pipeline")
+    print("-" * 60)
+    if run_orange_pipeline_with_options is None:
+        print("[Error] 無法載入 scripts.run_orange_pipeline，請確認專案路徑與依賴")
+        return
+    print("請選擇要執行的階段：")
+    print("1. 全部執行（蒐集 → 衍生 → 匯出）")
+    print("2. 僅 Phase 1：蒐集資料（景氣、股價、融資、VIX）")
+    print("3. 僅 Phase 2：計算衍生數據（M1B、總經、融資、VIX、技術指標）")
+    print("4. 僅 Phase 3：匯出 Orange 日線與月線 CSV")
+    sub = input("\n請選擇（1-4，預設 1）: ").strip() or "1"
+    skip_collect = sub != "1" and sub != "2"
+    skip_derive = sub != "1" and sub != "3"
+    skip_export = sub != "1" and sub != "4"
+    no_otc = input("不蒐集上櫃股票？(y/N): ").strip().lower() == "y"
+    start_date = input("起始日期 YYYY-MM-DD（預設 2015-01-01）: ").strip() or "2015-01-01"
+    end_date = input("結束日期 YYYY-MM-DD（預設今天，直接 Enter）: ").strip() or None
+    tickers = input("股票代號逗號分隔（預設 006208,2330）: ").strip() or "006208,2330"
+    db_path = input("資料庫路徑（直接 Enter 使用預設）: ").strip() or None
+    run_orange_pipeline_with_options(
+        skip_collect=skip_collect,
+        skip_derive=skip_derive,
+        skip_export=skip_export,
+        no_otc=no_otc,
+        start_date=start_date,
+        end_date=end_date,
+        tickers=tickers,
+        db_path=db_path,
+    )
+
+
 def main():
     """主程式"""
     while True:
         try:
             print_menu()
-            choice = input("\n請選擇功能（0-16）: ").strip()
+            choice = input("\n請選擇功能（0-18）: ").strip()
             
             # 過濾掉可能的 PowerShell 自動執行腳本或路徑
             # 如果輸入看起來像腳本路徑或命令，視為無效
@@ -2541,12 +2612,12 @@ def main():
             # 檢查是否包含路徑分隔符或腳本副檔名（可能是 PowerShell 自動執行）
             if '\\' in choice or '/' in choice or '.ps1' in choice.lower() or '.bat' in choice.lower() or choice.startswith('&'):
                 print("[Error] 無效的選項，請重新選擇")
-                print("[Info] 請直接輸入數字（0-10），不要輸入路徑或命令")
+                print("[Info] 請直接輸入數字（0-18），不要輸入路徑或命令")
                 continue
             
             # 只接受數字
             if not choice.isdigit():
-                print("[Error] 無效的選項，請輸入數字（0-14）")
+                print("[Error] 無效的選項，請輸入數字（0-18）")
                 continue
             
             if choice == '0':
@@ -2581,11 +2652,15 @@ def main():
             elif choice == '14':
                 download_and_recalculate_vix_monthly()
             elif choice == '15':
-                create_chinese_views()
+                compute_vix_derivatives()
             elif choice == '16':
+                create_chinese_views()
+            elif choice == '17':
                 calculate_technical_indicators()
+            elif choice == '18':
+                run_orange_pipeline_menu()
             else:
-                print("[Error] 無效的選項，請輸入 0-16 之間的數字")
+                print("[Error] 無效的選項，請輸入 0-18 之間的數字")
             
             input("\n按 Enter 繼續...")
         except (EOFError, KeyboardInterrupt):
@@ -2776,8 +2851,8 @@ def fill_zero_price_data():
 
 
 def calculate_technical_indicators():
-    """選項 16：計算技術指標（日線/月線）"""
-    print("\n[選項 16] 計算技術指標（日線/月線）")
+    """選項 17：計算技術指標（日線/月線）"""
+    print("\n[選項 17] 計算技術指標（日線/月線）")
     print("-" * 60)
     
     try:
