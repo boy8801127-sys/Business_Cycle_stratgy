@@ -1,6 +1,6 @@
-# 景氣週期投資策略系統 🔵🔴✔️
+# Business Cycle Investment Strategy System
 
-**[中文簡介](#中文簡介)**
+**[Chinese Introduction (繁體中文)](README_zh-TW.md)**
 
 ---
 
@@ -20,412 +20,305 @@ This project is a **quantitative backtesting and data pipeline platform** based 
 
 ---
 
-## 他的績效如何?
-<img src="photo/TEJ成果還原_page-0001.jpg" alt="TEJ 策略回測績效報告 - 第一頁" width="800">
+## Performance Snapshot
 
-<img src="photo/TEJ成果還原_page-0002.jpg" alt="TEJ 策略回測績效報告 - 第二頁" width="800">
+<img src="photo/TEJ成果還原_page-0001.jpg" alt="TEJ Strategy Backtest Report - Page 1" width="800">
 
----
-
-## 中文簡介
-
-景氣週期投資策略系統為基於**台灣景氣燈號與總經指標**的量化回測與資料管線系統。
-
-**主要功能：**
-- **景氣與總經**：匯入景氣燈號、領先／同時／落後指標，並自動計算綜合指標衍伸（月變動、變化率、前1/2期、移動平均等）。
-- **市場與技術**：蒐集上市／上櫃股價、融資融券、VIX、M1B 年增率與技術指標（日線／月線）。
-- **一鍵 Pipeline**：蒐集 → 衍生計算 → 匯出 Orange 用 CSV（日線／月線），一次完成。
-- **預測與策略**：匯出資料供 Orange 預測「未來1月最高／最低價」，並依誤差指標設計分批掛單策略。
-
-**資料庫規模**（依 [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt)）：
-
-| 項目 | 筆數 | 備註 |
-|------|------|------|
-| VIX 原始(TFE) | 94,786 | 期交所 VIX 日內資料 |
-| VIX 月K/衍生 | 163 | VIX 月 K 線與衍生指標 |
-| 景氣燈號 | 10,407 | 景氣對策信號 |
-| 景氣信號構成／領先／同時／落後／綜合指標與燈號 | 10,930 | 景氣指標系列 |
-| 融資融券（本專案表） | 3,930 | 大盤融資融券衍生 |
-| 合併總經指標 | 10,930 | 合併總經指標 |
-| 技術指標(日線) | 6,372；技術指標(月線) | 314 |
-| 策略回測結果 | 1,621,044 | 回測明細 |
-| 上櫃股價 | 3,239,580 | 標的數 5304，20100104–20260130 |
-| 上市/ETF 股價 | 4,040,978 | 標的數 1516，20100104–20260130 |
-| 融資融券(證交所) | 1,719,525 | 證交所原始融資融券 |
-| **總筆數（所有表合計）** | **11,159,042** | 約 1,115 萬筆 |
-
-**適用對象：** 想學習量化交易的初學者、對景氣循環投資策略感興趣的投資人、想要自動化交易策略的開發者。
+<img src="photo/TEJ成果還原_page-0002.jpg" alt="TEJ Strategy Backtest Report - Page 2" width="800">
 
 ---
 
-## 快速開始 🚀
+## Quick Start
 
-### 我想先了解這套系統在做甚麼?
+### Want to understand the system first?
 
-請參考 [景氣週期投資策略系統 - 專案說明文件](docs/PROJECT_CONTEXT.md)
+See [Project context document](docs/PROJECT_CONTEXT.md).
 
-### 第一次使用？
+### First time setup
 
-1. **安裝依賴套件**
+1. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-2. **設定資料庫路徑**（如果需要）
+2. **Set database path** (if needed)
    
-   資料庫預設路徑：`D:\all_data\taiwan_stock_all_data.db`
+   Default path: `D:\all_data\taiwan_stock_all_data.db`
    
-   如果資料庫位置不同，請修改 `data_collection/database_manager.py` 中的預設路徑。
+   To use a different path, edit the default in `data_collection/database_manager.py`.
 
-3. **執行主程式**
+3. **Run the main program**
    ```bash
    python main.py
    ```
 
-4. **按照選單指示操作**（主選單 0–18）
-   - 先選擇「選項 1」讀取景氣燈號資料
-   - 再選擇「選項 2」蒐集股票資料
-   - 最後選擇「選項 12」執行回測
-   - 其他選項見下方「功能說明」
+4. **Follow the menu** (options 0–18)
+   - Option 1: Load business cycle / indicator data
+   - Option 2: Collect stock data
+   - Option 12: Run backtest
+   - Other options: see "Feature overview" below.
 
-### 遇到問題？
+### Troubleshooting
 
-- **找不到資料庫？** 請確認資料庫路徑是否正確
-- **安裝套件失敗？** 請確認已安裝 Python 3.8 以上版本
-- **執行錯誤？** 請確認已安裝所有依賴套件（見下方「依賴套件」章節）
-
----
-
-## 功能說明 📋
-
-### 選項 1：讀取景氣燈號資料
-
-**什麼時候用？**
-- 第一次使用專案時
-- 需要更新最新的景氣數據時
-
-**怎麼用？**
-1. 執行 `python main.py`
-2. 選擇選項 1
-3. 等待資料讀取完成
-
-**會發生什麼？**
-系統會讀取景氣燈號資料，並轉換成每日資料供策略使用。
-
-**資料來源：** `business_cycle/景氣指標與燈號.csv`
+- **Database not found?** Check the database path.
+- **Package install failed?** Ensure Python 3.8+ is installed.
+- **Runtime error?** Ensure all dependencies are installed (see "Dependencies" below).
 
 ---
 
-### 選項 2：蒐集股票和ETF資料
+## Feature Overview
 
-**什麼時候用？**
-- 第一次使用專案時
-- 需要更新最新的股價資料時
+### Option 1: Load business cycle and indicator data
 
-**怎麼用？**
-1. 執行 `python main.py`
-2. 選擇選項 2
-3. 等待資料下載完成（可能需要一些時間）
+**When to use:** First-time setup or when you need the latest business cycle data.
 
-**會發生什麼？**
-系統會從證交所 API 下載所有股票和ETF的股價資料，並儲存到資料庫中。
+**How:** Run `python main.py` → choose option 1 → wait for completion.
 
-**注意事項：**
-- 下載過程會自動休息 3-5 秒，避免觸發速率限制
-- 如果下載失敗，系統會自動重試 3 次
+**What happens:** System loads business cycle data from CSV and converts it to daily series for strategies.
+
+**Data source:** `business_cycle/景氣指標與燈號.csv`
 
 ---
 
-### 選項 12：執行回測 🎯
+### Option 2: Collect stock and ETF data
 
-**什麼時候用？**
-- 想要測試策略表現時
-- 想要比較不同策略的效果時
+**When to use:** First-time setup or when you need the latest price data.
 
-**怎麼用？**
-1. 確保已完成選項 1 和選項 2
-2. 執行 `python main.py`
-3. 選擇選項 12
-4. 選擇要測試的策略
-5. 輸入回測日期範圍（或使用預設值）
-6. 等待回測完成
+**How:** Run `python main.py` → choose option 2 → wait for download (may take a while).
 
-**支援的策略：**
+**What happens:** System downloads listed stock and ETF prices from the exchange API and stores them in the database.
 
-| 策略名稱 | 說明 | 適合場景 |
-|---------|------|---------|
-| **景氣燈號策略** | 根據景氣燈號自動買賣 | 想要跟隨景氣循環 |
-| **Orange 機器學習策略** | 使用 AI 預測股價 | 想要使用先進技術 |
-| **買進持有策略** | 一直持有股票 | 作為基準比較 |
-
-**回測參數：**
-- 起始日期：2020-01-01
-- 結束日期：2025-11-30
-- 初始資金：預設 1,000,000 元
-
-**回測結果：**
-系統會產生 Excel 檔案，包含：
-- 每日投資組合價值
-- 交易記錄
-- 績效指標（報酬率、夏普比率、最大回撤等）
+**Notes:** 3–5 second delay between requests to avoid rate limits; automatic retry up to 3 times on failure.
 
 ---
 
-### 選項 14：下載並重新計算 VIX 月K線 📊
+### Option 12: Run backtest
 
-**什麼時候用？**
-- 需要更新最新的 VIX（波動率指數）資料時
-- 當月 VIX 資料有缺失需要補齊時
+**When to use:** To test strategy performance or compare strategies.
 
-**怎麼用？**
-1. 執行 `python main.py`
-2. 選擇選項 14
-3. 系統會自動偵測當月缺失的交易日
-4. 自動下載缺失日期的 VIX 資料
-5. 解析並存入資料庫
-6. 重新計算並更新 VIX 月K線資料
+**How:** Ensure options 1 and 2 are done → run `python main.py` → option 12 → choose strategy(ies) → enter date range (or default) → wait for completion.
 
-**會發生什麼？**
-- 系統會自動比對當月交易日曆與資料庫中現有資料
-- 找出缺失的交易日並自動下載
-- 將下載的原始資料解析後存入 `TFE_VIX_data` 資料表
-- 根據日內資料計算月K線（開盤、最高、最低、收盤）
-- 更新 `VIX_data` 資料表中的月K線資料
+**Strategies:**
 
-**資料來源：**
-- TAIFEX（台灣期貨交易所）公開 API
-- 自動從 `https://www.taifex.com.tw/cht/7/getVixData` 下載
+| Strategy | Description | Use case |
+|----------|-------------|----------|
+| **Business cycle (TEJ)** | Buy/sell by cycle lights | Follow the business cycle |
+| **Orange ML** | AI-based price prediction | Use ML signals |
+| **Buy & hold** | Hold equity | Benchmark |
 
-**注意事項：**
-- 下載過程會自動重試 3 次，避免網路問題導致失敗
-- 如果當月所有交易日資料已齊全，系統會提示無需下載
-- 原始資料會儲存在 `VIX_dictionary_put_in_database/TFE_rawdata/raw_data/` 目錄
+**Backtest defaults:** Start 2020-01-01, end 2025-11-30, initial capital 1,000,000 TWD.
+
+**Output:** Excel with daily portfolio value, trades, and metrics (return, Sharpe, max drawdown, etc.).
 
 ---
 
-### 選項 13：收集融資融券數據
+### Option 14: Download and recalculate VIX monthly K-line
 
-**什麼時候用？** 需要大盤融資融券與衍生指標（券資比、變化率、買賣比等）時。
+**When to use:** When you need up-to-date VIX data or to fill missing trading days for the current month.
 
-**怎麼用？** 執行 `python main.py` → 選擇選項 13 → 輸入日期範圍（預設 2015–2025）。
+**How:** Run `python main.py` → option 14. The system detects missing trading days, downloads raw VIX data, parses it, inserts into `TFE_VIX_data`, recalculates monthly K-lines, and updates `VIX_data`.
 
-**會發生什麼？** 從證交所 MI_MARGN API 下載融資融券原始資料，寫入 `market_margin_data`，並計算衍生指標（融資餘額變化率、買賣比等）。
+**Data source:** TAIFEX public API (`https://www.taifex.com.tw/cht/7/getVixData`).
 
----
-
-### 選項 15：計算 VIX 衍生指標
-
-**什麼時候用？** 已執行選項 14 產出 VIX 月K線後，需要衍生指標（變化率、區間、動能、滯後、均線等）時。
-
-**怎麼用？** 執行 `python main.py` → 選擇選項 15。
-
-**會發生什麼？** 依 `VIX_data` 月K線計算衍生欄位（vix_change、vix_change_pct、vix_range、vix_mom、vix_ma3 等）並寫回 `VIX_data`。
+**Notes:** Retries up to 3 times; raw files under `VIX_dictionary_put_in_database/TFE_rawdata/raw_data/`.
 
 ---
 
-### 選項 16：建立中文別名 VIEW
+### Option 13: Collect margin (financing) data
 
-**什麼時候用？** 希望以中文欄位名稱查詢所有資料表時。
+**When to use:** When you need market-wide margin data and derived metrics (e.g. margin balance change rate, buy/sell ratio).
 
-**怎麼用？** 執行 `python main.py` → 選擇選項 16。
+**How:** Run `python main.py` → option 13 → enter date range (default 2015–2025).
 
-**會發生什麼？** 為專案內主要資料表建立對應的 VIEW，欄位以中文別名呈現，便於報表或 BI 工具使用。
-
----
-
-### 選項 17：計算技術指標（日線/月線）
-
-**什麼時候用？** 需要日線或月線技術指標（如均線、波動率等）供策略或 Orange 匯出使用時。
-
-**怎麼用？** 執行 `python main.py` → 選擇選項 17 → 依提示選擇日線或月線。
-
-**會發生什麼？** 依股價與設定的指標計算日線/月線技術指標並寫入對應資料表。
+**What happens:** Downloads margin data from the exchange MI_MARGN API, writes to `market_margin_data`, and computes derived indicators.
 
 ---
 
-### 選項 18：Orange 一鍵 Pipeline
+### Option 15: Compute VIX derivatives
 
-**什麼時候用？** 希望一次完成「蒐集 → 衍生計算 → 匯出 Orange 用 CSV（日線/月線）」時。
+**When to use:** After option 14 has produced VIX monthly K-lines and you need derivative fields (change, range, momentum, lags, moving averages).
 
-**怎麼用？** 執行 `python main.py` → 選擇選項 18 → 依腳本選單選擇項目。
+**How:** Run `python main.py` → option 15.
 
-**會發生什麼？** 呼叫 `scripts/run_orange_pipeline.py`，串接資料蒐集、衍生計算與 Orange 分析數據匯出。
-
----
-
-## Orange 機器學習策略 🤖
-
-### 這是什麼？
-
-這是一個**自動預測股價**的策略，使用機器學習模型來判斷：
-- 📉 股價是否被低估（該買進）
-- 📈 股價是否被高估（該賣出）
-
-### 怎麼運作？
-
-1. **模型預測**：使用訓練好的機器學習模型預測股價
-2. **比較價格**：比較實際價格和預測價格
-3. **決定買賣**：
-   - 實際價格 < 預測價格 5% 以上 → 買進（被低估）
-   - 實際價格 > 預測價格 5% 以上 → 賣出（被高估）
-
-### 需要什麼？
-
-- Orange 模型文件（.pkcls）- 需要先訓練模型
-- 景氣指標資料（選項 1）
-- 股票價格資料（選項 2）
-
-### 怎麼使用？
-
-1. 確保已安裝 Orange3 和 PyQt5：
-   ```bash
-   pip install orange3 PyQt5
-   ```
-
-2. 準備 Orange 模型文件（如果還沒有，需要先在 Orange 中訓練模型）
-
-3. 在執行回測時選擇「Orange 預測策略」
-
-**詳細說明：** 請參考 [Orange 模型整合報告](docs/ORANGE_INTEGRATION_REPORT.md)
+**What happens:** Computes fields such as vix_change, vix_change_pct, vix_range, vix_mom, vix_ma3 and writes them to `VIX_data`.
 
 ---
 
-## 策略表現 📊
+### Option 16: Create Chinese-alias VIEWs
 
-### 回測結果（2020-2025）
+**When to use:** When you want to query tables using Chinese column names (e.g. for reports or BI).
 
-| 策略名稱 | 年化報酬率 | 風險調整報酬 | 最大虧損 | 說明 |
-|---------|-----------|------------|---------|------|
-| **Orange 模型** | 23.5% | ⭐⭐⭐⭐ | -34% | 使用 AI 預測，報酬最高 |
-| **短天期美債** | 21.7% | ⭐⭐⭐⭐⭐ | -26% | 風險較低，表現穩定 |
-| **買進持有** | 18.2% | ⭐⭐⭐ | -34% | 傳統策略，作為基準 |
-| **現金避險** | 17.3% | ⭐⭐⭐⭐ | -27% | 保守策略 |
+**How:** Run `python main.py` → option 16.
 
-**指標說明：**
-
-- **年化報酬率**：每年平均賺多少錢（數字越大越好）
-- **風險調整報酬（夏普比率）**：考慮風險後的表現（星星越多越好，⭐⭐⭐⭐⭐ 最好）
-- **最大虧損（最大回撤）**：最壞情況下會虧多少錢（數字越小越好，負數表示虧損）
-
-### 如何選擇策略？
-
-- **想要最高報酬？** → 選擇 Orange 模型策略
-- **想要穩定收益？** → 選擇短天期美債策略
-- **保守型投資者？** → 選擇現金避險策略
+**What happens:** Creates VIEWs for main tables with Chinese column aliases.
 
 ---
 
-## 系統架構 📁
+### Option 17: Compute technical indicators (daily / monthly)
+
+**When to use:** When you need daily or monthly technical indicators (e.g. moving averages, volatility) for strategies or Orange export.
+
+**How:** Run `python main.py` → option 17 → choose daily or monthly as prompted.
+
+**What happens:** Computes the selected indicators and writes them to the corresponding tables.
+
+---
+
+### Option 18: Orange one-click pipeline
+
+**When to use:** To run the full flow: collect → derive → export Orange CSV (daily/monthly) in one go.
+
+**How:** Run `python main.py` → option 18 → follow the script menu.
+
+**What happens:** Calls `scripts/run_orange_pipeline.py` to chain data collection, derivation, and Orange export.
+
+---
+
+## Orange ML strategy
+
+### What it is
+
+A strategy that uses a trained ML model to predict prices and trade when actual price deviates from prediction (e.g. buy when undervalued, sell when overvalued).
+
+### How it works
+
+1. **Model prediction:** Trained model predicts price.
+2. **Compare:** Actual vs predicted price.
+3. **Trade:** e.g. buy if actual < 95% of predicted; sell if actual > 105% of predicted.
+
+### Requirements
+
+- Orange model file (.pkcls) — train in Orange first.
+- Business cycle data (option 1) and stock price data (option 2).
+
+### Usage
+
+1. Install Orange3 and PyQt5: `pip install orange3 PyQt5`
+2. Prepare the Orange model file.
+3. In backtest (option 12), select the Orange prediction strategy.
+
+**Details:** [Orange integration report](docs/ORANGE_INTEGRATION_REPORT.md)
+
+---
+
+## Strategy performance
+
+### Backtest results (2020–2025, illustrative)
+
+| Strategy | Ann. return | Risk-adjusted | Max drawdown | Note |
+|----------|-------------|---------------|--------------|------|
+| **Orange** | 23.5% | ⭐⭐⭐⭐ | -34% | Highest return |
+| **Short-term bond** | 21.7% | ⭐⭐⭐⭐⭐ | -26% | Lower risk |
+| **Buy & hold** | 18.2% | ⭐⭐⭐ | -34% | Benchmark |
+| **Cash hedge** | 17.3% | ⭐⭐⭐⭐ | -27% | Conservative |
+
+**Metrics:** Ann. return = average yearly return; risk-adjusted = Sharpe-style; max drawdown = worst peak-to-trough loss.
+
+### Choosing a strategy
+
+- **Highest return?** → Orange ML.
+- **Stable return?** → Short-term bond.
+- **Conservative?** → Cash hedge.
+
+---
+
+## System layout
 
 ```
 Business_Cycle_stratgy/
-├── data_collection/          # 資料蒐集模組
-│   ├── cycle_data_collector.py       # 讀取景氣燈號資料
-│   ├── stock_data_collector.py       # 下載股票和ETF資料
-│   ├── otc_data_collector.py        # 上櫃股票資料
-│   ├── indicator_data_collector.py   # 景氣指標與合併總經指標
-│   ├── m1b_calculator.py             # M1B 年增率與動能
-│   ├── margin_data_collector.py     # 融資融券資料（證交所 API）
-│   ├── vix_derivatives.py           # VIX 衍生指標計算
-│   ├── technical_indicator_calculator.py  # 技術指標（日線/月線）
-│   └── database_manager.py           # 資料庫管理
-├── backtesting/              # 回測模組
-│   ├── backtest_engine_new.py     # 回測引擎
-│   ├── strategy_tej.py            # 景氣燈號策略
-│   ├── strategy_orange.py         # Orange 機器學習策略
-│   ├── orange_model_loader.py     # Orange 模型載入
-│   └── chart_generator.py         # 績效圖表生成
-├── orange_data_export/       # Orange 相關
-│   ├── export_for_prediction.py   # 資料導出腳本
-│   └── inspect_model.py           # 模型檢查工具
-├── utils/                    # 工具
-│   └── timestamp_converter.py   # 時間戳轉換
-├── VIX_dictionary_put_in_database/  # VIX 下載、解析、月K線
-├── scripts/                  # 腳本
-│   ├── export_orange_data.py     # 輸出 Orange 分析數據
-│   └── run_orange_pipeline.py   # Orange 一鍵 Pipeline
-├── docs/                     # 文件資料夾
-├── main.py                   # 主程式（執行這個）
-├── requirements.txt         # 依賴套件清單
-└── README.md                 # 本文件
+├── data_collection/          # Data collection
+│   ├── cycle_data_collector.py       # Business cycle (CSV)
+│   ├── stock_data_collector.py      # Listed stocks/ETFs
+│   ├── otc_data_collector.py        # OTC stocks
+│   ├── indicator_data_collector.py   # Indicators & merged macro
+│   ├── m1b_calculator.py             # M1B yoy & momentum
+│   ├── margin_data_collector.py     # Margin (exchange API)
+│   ├── vix_derivatives.py           # VIX derivatives
+│   ├── technical_indicator_calculator.py  # Tech indicators
+│   └── database_manager.py           # DB access
+├── backtesting/              # Backtest
+│   ├── backtest_engine_new.py     # Engine
+│   ├── strategy_tej.py            # TEJ cycle strategy
+│   ├── strategy_orange.py         # Orange ML strategy
+│   ├── orange_model_loader.py     # Orange model loader
+│   └── chart_generator.py         # Charts
+├── orange_data_export/       # Orange export
+│   ├── export_for_prediction.py   # Export for prediction
+│   └── inspect_model.py           # Model inspection
+├── utils/                    # Utilities
+│   └── timestamp_converter.py   # Timestamp conversion
+├── VIX_dictionary_put_in_database/  # VIX download, parse, monthly K
+├── scripts/
+│   ├── export_orange_data.py     # Orange data export
+│   └── run_orange_pipeline.py   # One-click Orange pipeline
+├── docs/
+├── main.py                   # Entry point
+├── requirements.txt
+└── README.md
 ```
 
 ---
 
-## 策略邏輯說明 💡
+## Strategy logic (summary)
 
-### 景氣燈號策略
+### Business cycle (TEJ)
 
-根據台灣景氣對策信號（景氣燈號）自動調整投資組合：
+- **Blue (score ≤ 16):** Buy equity (e.g. 006208), sell hedge.
+- **Red (score ≥ 38):** Sell equity, buy hedge (bonds/cash).
+- **Green/Yellow:** Buy on first entry into range.
 
-- **藍燈（SCORE ≤ 16）**：景氣低迷
-  - 動作：買進股票（006208，富邦台50），賣出避險資產
-  
-- **紅燈（SCORE ≥ 38）**：景氣過熱
-  - 動作：賣出股票，買進避險資產（如債券、現金等）
-  
-- **綠燈/黃燈（16 < SCORE < 38）**：景氣穩定
-  - 動作：首次進入時買進股票
+### Orange ML
 
-### Orange 機器學習策略
-
-使用機器學習模型預測股價，當實際價格偏離預測價格時進行交易：
-
-- **買進條件**：實際價格 < 預測價格 × 95%（被低估 5% 以上）
-- **賣出條件**：實際價格 > 預測價格 × 105%（被高估 5% 以上）
-- **風險管理**：根據預測穩定性動態調整倉位（20%-100%）
+- **Buy:** Actual price < 95% of predicted.
+- **Sell:** Actual price > 105% of predicted.
+- **Risk:** Position size 20%–100% by prediction stability.
 
 ---
 
-## 資料來源 📚
+## Data sources
 
-### 景氣燈號資料
+### Business cycle
 
-- **來源**：政府開放資料
-- **檔案**：`business_cycle/景氣指標與燈號.csv`
-- **更新頻率**：每月
+- **Source:** Government open data.
+- **File:** `business_cycle/景氣指標與燈號.csv`
+- **Update:** Monthly.
 
-### 股價資料
+### Stock prices
 
-- **來源**：證交所公開 API
-- **包含**：所有上市股票、ETF、上櫃股票
-- **儲存**：SQLite 資料庫
-- **更新**：使用選項 2 或選項 5 更新
+- **Source:** TWSE / TPEx APIs.
+- **Storage:** SQLite.
+- **Update:** Option 2 or 5.
 
 ---
 
-## 依賴套件 📦
+## Dependencies
 
-### 必要套件
+### Required
 
-這些套件是系統運作必需的：
+| Package | Purpose |
+|---------|---------|
+| `pandas` | Data handling |
+| `numpy` | Numerics |
+| `requests` | API calls |
+| `matplotlib` | Plots |
+| `plotly` | Interactive charts |
+| `openpyxl` | Excel I/O |
 
-| 套件名稱 | 用途 | 安裝方式 |
-|---------|------|---------|
-| `pandas` | 資料處理和分析 | `pip install pandas` |
-| `numpy` | 數值計算 | `pip install numpy` |
-| `requests` | 下載資料（從 API） | `pip install requests` |
-| `matplotlib` | 繪製圖表 | `pip install matplotlib` |
-| `plotly` | 繪製互動式圖表 | `pip install plotly` |
-| `openpyxl` | 讀寫 Excel 檔案 | `pip install openpyxl` |
+### Optional
 
-### 選用套件
+| Package | When needed |
+|---------|-------------|
+| `orange3` | Orange strategy |
+| `PyQt5` | Orange strategy |
+| `pandas_market_calendars` | Trading calendar |
 
-這些套件只在特定功能需要時才需要：
-
-| 套件名稱 | 用途 | 何時需要 |
-|---------|------|---------|
-| `orange3` | 機器學習框架 | 使用 Orange 策略時 |
-| `PyQt5` | GUI 支援 | 使用 Orange 策略時 |
-| `pandas_market_calendars` | 交易日曆 | 計算交易日時 |
-
-### 一鍵安裝
+### Install
 
 ```bash
 pip install -r requirements.txt
 ```
 
-如果使用 Orange 策略，還需要額外安裝：
+For Orange strategy also:
 
 ```bash
 pip install orange3 PyQt5
@@ -433,138 +326,106 @@ pip install orange3 PyQt5
 
 ---
 
-## 常見問題 ❓
+## FAQ
 
-### 安裝相關
+### Install
 
-**Q: 安裝套件時出現錯誤怎麼辦？**
+**Q: Package install fails?**  
+A: Use Python 3.8+, run `python -m pip install --upgrade pip`, then install packages one by one if needed.
 
-A: 
-1. 確認已安裝 Python 3.8 以上版本
-2. 嘗試更新 pip：`python -m pip install --upgrade pip`
-3. 如果還是失敗，可以一個一個安裝套件，找出有問題的套件
+**Q: What do I need for Orange strategy?**  
+A: `orange3` and `PyQt5`: `pip install orange3 PyQt5`
 
-**Q: 需要安裝哪些套件才能使用 Orange 策略？**
+### Usage
 
-A: 除了基本的套件外，還需要安裝 `orange3` 和 `PyQt5`：
-```bash
-pip install orange3 PyQt5
-```
+**Q: Which strategy to choose?**  
+A: Orange for highest return; short-term bond for stability; cash hedge for conservative.
 
-### 使用相關
+**Q: Why does backtest differ from live trading?**  
+A: Backtest uses historical data and closing prices; live trading has slippage, liquidity, and execution delays.
 
-**Q: 我該選擇哪個策略？**
+**Q: Where are strategy parameters?**  
+A: TEJ in `backtesting/strategy_tej.py`; Orange in `backtesting/strategy_orange.py` (see comments around lines 89–125).
 
-A: 
-- 如果你想要最高報酬，可以試試 Orange 模型策略
-- 如果你想要穩定的收益，可以選擇短天期美債策略
-- 如果你是保守型投資者，可以選擇現金避險策略
+**Q: General errors?**  
+A: Check dependencies, database path, and that options 1 and 2 have been run; read the error message.
 
-**Q: 為什麼回測結果和實際交易不同？**
+### Data
 
-A: 
-- 回測是基於歷史資料的模擬，實際交易會受到市場流動性、滑點等因素影響
-- 回測不考慮實際交易時的手續費折扣
-- 回測假設能夠完美執行交易，實際交易可能有延遲
+**Q: Where is the database?**  
+A: Default `D:\all_data\taiwan_stock_all_data.db`; override in `data_collection/database_manager.py`.
 
-**Q: 如何調整策略參數？**
+**Q: Is the DB uploaded to GitHub?**  
+A: No; it is in `.gitignore`. Keep your copy locally.
 
-A: 
-- 景氣燈號策略的參數在 `backtesting/strategy_tej.py` 中
-- Orange 策略的參數在 `backtesting/strategy_orange.py` 中（第 89-125 行有詳細註釋）
-
-**Q: 遇到錯誤怎麼辦？**
-
-A: 
-1. 確認已安裝所有必要套件
-2. 確認資料庫路徑正確
-3. 確認已完成選項 1 和選項 2（讀取資料）
-4. 查看錯誤訊息，通常會指出問題所在
-
-### 資料相關
-
-**Q: 資料庫檔案在哪裡？**
-
-A: 預設路徑是 `D:\all_data\taiwan_stock_all_data.db`，如果不同，請修改 `data_collection/database_manager.py`
-
-**Q: 資料庫檔案會上傳到 GitHub 嗎？**
-
-A: 不會，資料庫檔案已設定為不上傳（見 `.gitignore`），請自行保管資料庫檔案。
-
-**Q: 如何更新最新的資料？**
-
-A: 使用「選項 2」更新股票資料，使用「選項 5」批次更新資料。
+**Q: How to update data?**  
+A: Option 2 for stocks; option 5 for batch update.
 
 ---
 
-## 資料庫結構 💾
+## Database schema
 
-本專案使用 SQLite 資料庫儲存所有資料。
+SQLite stores all data.
 
-**主要資料表：**
+**Main tables:**
 
-- `tw_stock_price_data`：上市股票和ETF每日股價資料
-- `tw_otc_stock_price_data`：上櫃股票每日股價資料
-- `business_cycle_data`：景氣燈號每日資料
-- `market_margin_data`：大盤融資融券與衍生指標（選項 13 寫入）
-- `TFE_VIX_data`：期交所 VIX 日內原始資料（選項 14 寫入）
-- `VIX_data`：VIX 月K線與衍生指標（選項 14／15 寫入）
+- `tw_stock_price_data` — Listed stocks/ETFs daily prices
+- `tw_otc_stock_price_data` — OTC daily prices
+- `business_cycle_data` — Business cycle daily
+- `market_margin_data` — Margin and derivatives (option 13)
+- `TFE_VIX_data` — VIX intraday raw (option 14)
+- `VIX_data` — VIX monthly K-line and derivatives (options 14 / 15)
 
-各表筆數與區間見 [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt) 或上方「中文簡介」中的資料庫規模表。
+Row counts and date ranges: [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt) or the database scale table in [README_zh-TW.md](README_zh-TW.md).
 
-**詳細說明：** 請參考 [資料庫結構說明文件](docs/DATABASE_SCHEMA.md)
-
----
-
-## 其他功能 🔧
-
-### 資料驗證與修正
-
-系統提供多種資料驗證與修正功能（選項 6–9）：
-
-- **選項 6**：驗證股價資料（檢查異常值）
-- **選項 7**：檢查資料完整性
-- **選項 8**：填補零值價格資料
-- **選項 9**：刪除權證資料
-
-### 其他主選單功能（選項 13–18）
-
-- **選項 13**：收集融資融券數據（2015–2025，含衍生指標）
-- **選項 14**：下載並重新計算 VIX 月K線（自動偵測當月缺失日期）
-- **選項 15**：計算 VIX 衍生指標（寫入 VIX_data）
-- **選項 16**：建立中文別名 VIEW（所有資料表中文欄位視圖）
-- **選項 17**：計算技術指標（日線/月線）
-- **選項 18**：Orange 一鍵 Pipeline（蒐集→衍生→匯出）
-
-### 資料分析工具
-
-- **Power BI 連接**：請參考 [Power BI 連接指引](docs/POWER_BI_SETUP.md)
-- **Orange 預測分析**：請參考 [Orange 模型整合報告](docs/ORANGE_INTEGRATION_REPORT.md)
+**Full schema:** [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
 
 ---
 
-## 授權 📄
+## Other features
 
-本專案僅供**學習和研究使用**。
+### Data validation and fixes (options 6–9)
 
-**免責聲明：**
-- 本專案提供的策略和建議僅供參考，不構成投資建議
-- 投資有風險，請謹慎決策
-- 過去績效不代表未來表現
+- **6:** Validate prices (outliers)
+- **7:** Check data integrity
+- **8:** Fill zero/missing prices
+- **9:** Remove warrant records from OTC table
+
+### Other menu options (13–18)
+
+- **13:** Collect margin data (2015–2025, with derivatives)
+- **14:** Download and recalculate VIX monthly K-line
+- **15:** Compute VIX derivatives
+- **16:** Create Chinese-alias VIEWs
+- **17:** Compute technical indicators (daily/monthly)
+- **18:** Orange one-click pipeline
+
+### Analysis tools
+
+- [Power BI setup](docs/POWER_BI_SETUP.md)
+- [Orange integration report](docs/ORANGE_INTEGRATION_REPORT.md)
 
 ---
 
-## 參考資料 📖
+## License
 
-- TEJ 台灣經濟新報：從景氣燈號到資產輪動：一套避開熊市的量化策略
-- 證交所公開資料 API
-- 櫃買中心公開資料 API
+For **learning and research** only.
+
+**Disclaimer:** Strategies and content here are not investment advice. Investing involves risk. Past performance does not guarantee future results.
 
 ---
 
-## 更多資訊 ℹ️
+## References
 
-- **詳細技術文件**：請查看 `docs/` 資料夾
-- **資料庫結構**：[資料庫結構說明](docs/DATABASE_SCHEMA.md)
-- **Orange 策略詳情**：[Orange 模型整合報告](docs/ORANGE_INTEGRATION_REPORT.md)
-- **GitHub 上傳指引**：[GitHub 上傳指引](docs/GITHUB_SETUP.md)
+- TEJ: From business cycle lights to asset rotation (quant strategy)
+- TWSE / TPEx public APIs
+- National Development Council — business cycle indicator
+
+---
+
+## More
+
+- **Technical docs:** `docs/` and [PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md)
+- **Database:** [DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md)
+- **Orange:** [ORANGE_INTEGRATION_REPORT.md](docs/ORANGE_INTEGRATION_REPORT.md)
+- **GitHub:** [GITHUB_SETUP.md](docs/GITHUB_SETUP.md)
