@@ -238,6 +238,7 @@ Thumbs.db
 *.hdf5
 *.pkl
 *.pickle
+*.pkcls
 # 但保留 Orange 模型文件的規則（已存在）
 
 # IDE 和編輯器設定（可選，但建議保留）

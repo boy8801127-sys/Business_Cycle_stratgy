@@ -267,11 +267,15 @@ def phase3_export(args):
     start_date = args.start_date
     end_date = args.end_date or datetime.now().strftime("%Y-%m-%d")
     tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
+    ts = datetime.now().strftime("%Y-%m-%d")
+    daily_path = PROJECT_ROOT / "results" / f"orange_analysis_data_{ts}.csv"
+    monthly_path = PROJECT_ROOT / "results" / f"orange_monthly_ohlcv_with_indicators_006208_2330_{ts}.csv"
     print("\n  日線 CSV...")
     export_orange_data_daily(
         start_date=start_date,
         end_date=end_date,
         tickers=tickers,
+        output_path=str(daily_path),
         db_path=args.db_path,
     )
     print("\n  月線 CSV...")
@@ -279,9 +283,10 @@ def phase3_export(args):
         start_date=start_date,
         end_date=end_date,
         tickers=tickers,
+        output_path=str(monthly_path),
         db_path=args.db_path,
     )
-    print("\n  [OK] Phase 3 完成")
+    print(f"\n  [OK] Phase 3 完成（日線: {daily_path.name}，月線: {monthly_path.name}）")
 
 
 def run_with_options(
