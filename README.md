@@ -1,23 +1,60 @@
 # 景氣週期投資策略系統 🔵🔴✔️
 
-## 這是什麼？
+**[中文簡介](#中文簡介)**
 
-這是一個**量化交易策略系統**，幫助你：
+---
 
-- 📊 根據台灣景氣燈號自動買賣股票
-- 🤖 使用機器學習模型預測股價
-- 📈 回測策略表現，找出最佳投資時機
+## Overview
 
-## 適合誰？
+This project is a **quantitative backtesting and data pipeline platform** based on Taiwan's business cycle indicator (景氣燈號) and macroeconomic indicators. It helps you:
 
-- ✅ 想學習量化交易的初學者
-- ✅ 對景氣循環投資策略感興趣的投資人
-- ✅ 想要自動化交易策略的開發者
+- Import and process **business cycle and macroeconomic data** (NSC indicators, M1B, merged indicators).
+- Collect **stock prices** (listed/OTC), **margin trading data**, and **VIX** (intraday → monthly K-line → derivatives).
+- Compute **technical indicators** (daily/monthly) and **VIX derivatives**, and maintain a **Chinese-alias VIEW** for all tables.
+- Run **multi-strategy backtests** (TEJ-style rules and Orange ML) with validation and reports.
+- Use a **one-click Orange pipeline** (collect → derive → export) for prediction workflows.
+
+**Database scale** (as of [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt)): about **11.16 million rows** across all tables. Listed/ETF: 1,516 tickers (2010–2026); OTC: 5,304 tickers (2010–2026); business cycle and composite indicators: ~10.9k rows (1982–2026); VIX raw (TFE): ~94.8k; VIX monthly/derivatives: 163; margin data: ~3.9k (aggregated) and ~1.72M (exchange raw); backtest results: ~1.62M rows.
+
+**Who is this for:** Quant and business-cycle strategy developers, researchers who need Taiwan market data and reproducible backtests.
+
+---
 
 ## 他的績效如何?
 <img src="photo/TEJ成果還原_page-0001.jpg" alt="TEJ 策略回測績效報告 - 第一頁" width="800">
 
 <img src="photo/TEJ成果還原_page-0002.jpg" alt="TEJ 策略回測績效報告 - 第二頁" width="800">
+
+---
+
+## 中文簡介
+
+景氣週期投資策略系統為基於**台灣景氣燈號與總經指標**的量化回測與資料管線系統。
+
+**主要功能：**
+- **景氣與總經**：匯入景氣燈號、領先／同時／落後指標，並自動計算綜合指標衍伸（月變動、變化率、前1/2期、移動平均等）。
+- **市場與技術**：蒐集上市／上櫃股價、融資融券、VIX、M1B 年增率與技術指標（日線／月線）。
+- **一鍵 Pipeline**：蒐集 → 衍生計算 → 匯出 Orange 用 CSV（日線／月線），一次完成。
+- **預測與策略**：匯出資料供 Orange 預測「未來1月最高／最低價」，並依誤差指標設計分批掛單策略。
+
+**資料庫規模**（依 [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt)）：
+
+| 項目 | 筆數 | 備註 |
+|------|------|------|
+| VIX 原始(TFE) | 94,786 | 期交所 VIX 日內資料 |
+| VIX 月K/衍生 | 163 | VIX 月 K 線與衍生指標 |
+| 景氣燈號 | 10,407 | 景氣對策信號 |
+| 景氣信號構成／領先／同時／落後／綜合指標與燈號 | 10,930 | 景氣指標系列 |
+| 融資融券（本專案表） | 3,930 | 大盤融資融券衍生 |
+| 合併總經指標 | 10,930 | 合併總經指標 |
+| 技術指標(日線) | 6,372；技術指標(月線) | 314 |
+| 策略回測結果 | 1,621,044 | 回測明細 |
+| 上櫃股價 | 3,239,580 | 標的數 5304，20100104–20260130 |
+| 上市/ETF 股價 | 4,040,978 | 標的數 1516，20100104–20260130 |
+| 融資融券(證交所) | 1,719,525 | 證交所原始融資融券 |
+| **總筆數（所有表合計）** | **11,159,042** | 約 1,115 萬筆 |
+
+**適用對象：** 想學習量化交易的初學者、對景氣循環投資策略感興趣的投資人、想要自動化交易策略的開發者。
 
 ---
 
@@ -45,10 +82,11 @@
    python main.py
    ```
 
-4. **按照選單指示操作**
+4. **按照選單指示操作**（主選單 0–18）
    - 先選擇「選項 1」讀取景氣燈號資料
    - 再選擇「選項 2」蒐集股票資料
    - 最後選擇「選項 12」執行回測
+   - 其他選項見下方「功能說明」
 
 ### 遇到問題？
 
@@ -165,6 +203,56 @@
 
 ---
 
+### 選項 13：收集融資融券數據
+
+**什麼時候用？** 需要大盤融資融券與衍生指標（券資比、變化率、買賣比等）時。
+
+**怎麼用？** 執行 `python main.py` → 選擇選項 13 → 輸入日期範圍（預設 2015–2025）。
+
+**會發生什麼？** 從證交所 MI_MARGN API 下載融資融券原始資料，寫入 `market_margin_data`，並計算衍生指標（融資餘額變化率、買賣比等）。
+
+---
+
+### 選項 15：計算 VIX 衍生指標
+
+**什麼時候用？** 已執行選項 14 產出 VIX 月K線後，需要衍生指標（變化率、區間、動能、滯後、均線等）時。
+
+**怎麼用？** 執行 `python main.py` → 選擇選項 15。
+
+**會發生什麼？** 依 `VIX_data` 月K線計算衍生欄位（vix_change、vix_change_pct、vix_range、vix_mom、vix_ma3 等）並寫回 `VIX_data`。
+
+---
+
+### 選項 16：建立中文別名 VIEW
+
+**什麼時候用？** 希望以中文欄位名稱查詢所有資料表時。
+
+**怎麼用？** 執行 `python main.py` → 選擇選項 16。
+
+**會發生什麼？** 為專案內主要資料表建立對應的 VIEW，欄位以中文別名呈現，便於報表或 BI 工具使用。
+
+---
+
+### 選項 17：計算技術指標（日線/月線）
+
+**什麼時候用？** 需要日線或月線技術指標（如均線、波動率等）供策略或 Orange 匯出使用時。
+
+**怎麼用？** 執行 `python main.py` → 選擇選項 17 → 依提示選擇日線或月線。
+
+**會發生什麼？** 依股價與設定的指標計算日線/月線技術指標並寫入對應資料表。
+
+---
+
+### 選項 18：Orange 一鍵 Pipeline
+
+**什麼時候用？** 希望一次完成「蒐集 → 衍生計算 → 匯出 Orange 用 CSV（日線/月線）」時。
+
+**怎麼用？** 執行 `python main.py` → 選擇選項 18 → 依腳本選單選擇項目。
+
+**會發生什麼？** 呼叫 `scripts/run_orange_pipeline.py`，串接資料蒐集、衍生計算與 Orange 分析數據匯出。
+
+---
+
 ## Orange 機器學習策略 🤖
 
 ### 這是什麼？
@@ -232,19 +320,33 @@
 ```
 Business_Cycle_stratgy/
 ├── data_collection/          # 資料蒐集模組
-│   ├── cycle_data_collector.py    # 讀取景氣燈號資料
-│   ├── stock_data_collector.py    # 下載股票和ETF資料
-│   └── database_manager.py        # 資料庫管理
+│   ├── cycle_data_collector.py       # 讀取景氣燈號資料
+│   ├── stock_data_collector.py       # 下載股票和ETF資料
+│   ├── otc_data_collector.py        # 上櫃股票資料
+│   ├── indicator_data_collector.py   # 景氣指標與合併總經指標
+│   ├── m1b_calculator.py             # M1B 年增率與動能
+│   ├── margin_data_collector.py     # 融資融券資料（證交所 API）
+│   ├── vix_derivatives.py           # VIX 衍生指標計算
+│   ├── technical_indicator_calculator.py  # 技術指標（日線/月線）
+│   └── database_manager.py           # 資料庫管理
 ├── backtesting/              # 回測模組
 │   ├── backtest_engine_new.py     # 回測引擎
 │   ├── strategy_tej.py            # 景氣燈號策略
-│   └── strategy_orange.py         # Orange 機器學習策略
+│   ├── strategy_orange.py         # Orange 機器學習策略
+│   ├── orange_model_loader.py     # Orange 模型載入
+│   └── chart_generator.py         # 績效圖表生成
 ├── orange_data_export/       # Orange 相關
 │   ├── export_for_prediction.py   # 資料導出腳本
 │   └── inspect_model.py           # 模型檢查工具
+├── utils/                    # 工具
+│   └── timestamp_converter.py   # 時間戳轉換
+├── VIX_dictionary_put_in_database/  # VIX 下載、解析、月K線
+├── scripts/                  # 腳本
+│   ├── export_orange_data.py     # 輸出 Orange 分析數據
+│   └── run_orange_pipeline.py   # Orange 一鍵 Pipeline
 ├── docs/                     # 文件資料夾
 ├── main.py                   # 主程式（執行這個）
-├── requirements.txt          # 依賴套件清單
+├── requirements.txt         # 依賴套件清單
 └── README.md                 # 本文件
 ```
 
@@ -404,6 +506,11 @@ A: 使用「選項 2」更新股票資料，使用「選項 5」批次更新資�
 - `tw_stock_price_data`：上市股票和ETF每日股價資料
 - `tw_otc_stock_price_data`：上櫃股票每日股價資料
 - `business_cycle_data`：景氣燈號每日資料
+- `market_margin_data`：大盤融資融券與衍生指標（選項 13 寫入）
+- `TFE_VIX_data`：期交所 VIX 日內原始資料（選項 14 寫入）
+- `VIX_data`：VIX 月K線與衍生指標（選項 14／15 寫入）
+
+各表筆數與區間見 [results/資料庫筆數統計.txt](results/資料庫筆數統計.txt) 或上方「中文簡介」中的資料庫規模表。
 
 **詳細說明：** 請參考 [資料庫結構說明文件](docs/DATABASE_SCHEMA.md)
 
@@ -413,12 +520,21 @@ A: 使用「選項 2」更新股票資料，使用「選項 5」批次更新資�
 
 ### 資料驗證與修正
 
-系統提供多種資料驗證與修正功能（選項 6-9）：
+系統提供多種資料驗證與修正功能（選項 6–9）：
 
 - **選項 6**：驗證股價資料（檢查異常值）
 - **選項 7**：檢查資料完整性
 - **選項 8**：填補零值價格資料
 - **選項 9**：刪除權證資料
+
+### 其他主選單功能（選項 13–18）
+
+- **選項 13**：收集融資融券數據（2015–2025，含衍生指標）
+- **選項 14**：下載並重新計算 VIX 月K線（自動偵測當月缺失日期）
+- **選項 15**：計算 VIX 衍生指標（寫入 VIX_data）
+- **選項 16**：建立中文別名 VIEW（所有資料表中文欄位視圖）
+- **選項 17**：計算技術指標（日線/月線）
+- **選項 18**：Orange 一鍵 Pipeline（蒐集→衍生→匯出）
 
 ### 資料分析工具
 
