@@ -755,7 +755,7 @@ def run_backtest_new():
     
     # 回測時間設定（固定為 2020-01-01 至 2025-11-30）
     start_date = '2020-01-01'
-    end_date = '2025-12-31'
+    end_date = '2026-01-31'
     print(f"\n回測時間範圍：{start_date} 至 {end_date}")
     
     # 初始資金
